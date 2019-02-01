@@ -27,6 +27,9 @@ coverage.txt
 /packrd/
 *-packr.go
 
+# Environment files
+.env*
+
 # Test binary, build with `go test -c`
 *.test
 
