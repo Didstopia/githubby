@@ -41,6 +41,7 @@ deps:
 upgrade:
 	$(call timed_function,'go get -u ./...')
 	$(call timed_function,'go mod vendor')
+	$(call timed_function,'go mod tidy')
 
 tidy:
 	$(call timed_function,'go mod tidy')
