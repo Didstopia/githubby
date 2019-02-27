@@ -3,7 +3,6 @@ package ghapi
 
 import (
 	"context"
-	"log"
 
 	"github.com/google/go-github/github" // Include the GitHub API package
 	"golang.org/x/oauth2"
@@ -34,21 +33,108 @@ func NewGitHub(token string) (*GitHub, error) {
 
 // GetReleases returns all release information for the supplied repository
 func (githubClient *GitHub) GetReleases(owner string, repository string) ([]*github.RepositoryRelease, error) {
-	/*// Find the repository
-	repo, _, err := githubClient.client.Repositories.Get(githubClient.ctx, owner, repository)
+	// Find all releases (handles pagination behind the scenes, starting at page 1)
+	releases, err := githubClient.getAllReleases(owner, repository, 1, nil)
 	if err != nil {
 		return nil, err
 	}
-	log.Println("Repository:", repo)*/
 
-	// Find all releases
-	releases, _, err := githubClient.client.Repositories.ListReleases(githubClient.ctx, owner, repository, nil)
-	if err != nil {
-		return nil, err
-	}
-	log.Println("Releases:", releases)
+	// log.Println("Got", len(releases), "releases total")
 
 	return releases, nil
 }
 
-// TODO: Add a "RemoveRelease" function and implement the rest of the logic for filter-based removal (remove older than <time> etc.)
+// RemoveRelease will attempt to delete a release from GitHub
+func (githubClient *GitHub) RemoveRelease(owner string, repo string, release *github.RepositoryRelease) error {
+	// Delete the release
+	deleteReleaseErr := githubClient.deleteRelease(release)
+	if deleteReleaseErr != nil {
+		return deleteReleaseErr
+	}
+
+	// Delete the tag
+	deleteTagErr := githubClient.deleteTag(owner, repo, release)
+	if deleteTagErr != nil {
+		return deleteTagErr
+	}
+
+	// Return nil on success
+	return nil
+}
+
+func (githubClient *GitHub) deleteRelease(release *github.RepositoryRelease) error {
+	//log.Println("Deleting release:", release.TagName)
+
+	// Create the release deletion request
+	req, reqErr := githubClient.client.NewRequest("DELETE", *release.URL, nil)
+	if reqErr != nil {
+		return reqErr
+	}
+
+	// Run the request
+	_, doErr := githubClient.client.Do(githubClient.ctx, req, nil)
+	if doErr != nil {
+		return doErr
+	}
+
+	//log.Println("Delete release response:", res)
+
+	// Return nil on success
+	return nil
+}
+
+func (githubClient *GitHub) deleteTag(owner string, repo string, release *github.RepositoryRelease) error {
+	// Construct the API endpoint url
+	url := "https://api.github.com/repos/" + owner + "/" + repo + "/git/refs/tags/" + *release.TagName
+
+	//log.Println("Deleting tag:", url)
+
+	// Create the tag deletion request
+	req, reqErr := githubClient.client.NewRequest("DELETE", url, nil)
+	if reqErr != nil {
+		return reqErr
+	}
+
+	// Run the request
+	_, doErr := githubClient.client.Do(githubClient.ctx, req, nil)
+	if doErr != nil {
+		return doErr
+	}
+
+	//log.Println("Delete tag response:", res)
+
+	// Return nil on success
+	return nil
+}
+
+func (githubClient *GitHub) getAllReleases(owner string, repository string, page int, existingReleases []*github.RepositoryRelease) ([]*github.RepositoryRelease, error) {
+	//log.Println("Getting releases for page ", page)
+
+	// Create an array that will eventually contain all releases
+	allReleases := make([]*github.RepositoryRelease, 0)
+
+	// Use existing releases if necessary
+	if existingReleases != nil {
+		allReleases = existingReleases
+	}
+
+	// Get releases for the current page
+	releases, res, err := githubClient.client.Repositories.ListReleases(githubClient.ctx, owner, repository, &github.ListOptions{Page: page, PerPage: 100})
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the current releases
+	for _, release := range releases {
+		allReleases = append(allReleases, release)
+	}
+
+	// Recursively move to the next page if there are any more pages left
+	if res.NextPage > 0 && res.NextPage > page {
+		//log.Println("Moving from page", page, "to", res.NextPage)
+		return githubClient.getAllReleases(owner, repository, res.NextPage, allReleases)
+	}
+
+	// Return all releases if we're done
+	return allReleases, nil
+}

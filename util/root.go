@@ -3,13 +3,12 @@ package util
 
 import (
 	"errors"
-	"log"
 	"strings"
 )
 
 // ValidateGitHubRepository will check if the supplied repository is a valid GitHub repository (supports short format only, eg. user/repo)
 func ValidateGitHubRepository(repository string) (string, string, error) {
-	log.Println("Validating repository string:", repository)
+	//log.Println("Validating repository string:", repository)
 
 	// Validates that the repository string length is at least 3 characters
 	if len(repository) < 3 {
