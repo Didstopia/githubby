@@ -106,7 +106,7 @@ func init() {
 
 			// Notify the user
 			if !Verbose {
-				fmt.Printf("Found %d matching releases, applying filters..\n", len(releases))
+				fmt.Printf("Found %d release(s) total, applying filters..\n", len(releases))
 			}
 
 			// Create a new array of releases that need cleanup
@@ -152,9 +152,9 @@ func init() {
 			// Notify the user
 			if !Verbose {
 				if !DryRun {
-					fmt.Printf("Found %d releases matching filters, starting simulated cleanup..\n\n", len(cleanupReleases))
+					fmt.Printf("Found %d release(s) matching the filters, starting cleanup..\n\n", len(cleanupReleases))
 				} else {
-					fmt.Printf("Found %d releases matching filters, starting cleanup..\n\n", len(cleanupReleases))
+					fmt.Printf("Found %d release(s) matching the filters, starting simulated cleanup..\n\n", len(cleanupReleases))
 				}
 			}
 
