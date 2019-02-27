@@ -4,7 +4,7 @@ package ghapi
 import (
 	"context"
 
-	"github.com/google/go-github/github" // Include the GitHub API package
+	"github.com/google/go-github/v24/github"
 	"golang.org/x/oauth2"
 )
 

@@ -1,0 +1,53 @@
+language: go
+
+os: osx
+
+matrix:
+  fast_finish: true
+  allow_failures:
+    - go: master
+  include:
+  - go: master
+    script:
+      - make deps
+      - make build
+      - make test
+      - make install
+      - make uninstall
+  - go: 1.11.x
+    script:
+      - make deps
+      - make build
+      - make test
+      - make install
+      - make uninstall
+  - go: 1.10.x
+    script:
+      - make deps EXTRA_FLAGS=
+      - make build EXTRA_FLAGS=
+      - make test EXTRA_FLAGS=
+      - make install EXTRA_FLAGS=
+      - make uninstall EXTRA_FLAGS=
+  - go: 1.9.x
+    script:
+      - make deps EXTRA_FLAGS=
+      - make build EXTRA_FLAGS=
+      - make install EXTRA_FLAGS=
+      - make uninstall EXTRA_FLAGS=
+
+env:
+  global:
+    - GO111MODULE=on
+    - GOPROXY=
+
+install: true
+
+after_success: bash <(curl -s https://codecov.io/bash)
+
+cache:
+  directories:
+    - !$GOPATH/src/Didstopia/github-release-cleaner
+    - $GOPATH/src
+    - !$GOPATH/bin/Didstopia/github-release-cleaner
+    - $GOPATH/bin
+    - $GOPATH/pkg

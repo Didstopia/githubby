@@ -12,7 +12,7 @@ import (
 
 	"github.com/Didstopia/github-release-cleaner/ghapi"
 	"github.com/Didstopia/github-release-cleaner/util"
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v24/github"
 	"github.com/spf13/cobra" // Include the Cobra Commander package
 	pb "gopkg.in/cheggaaa/pb.v1"
 )
