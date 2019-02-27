@@ -14,6 +14,13 @@ matrix:
       - make test
       - make install
       - make uninstall
+  - go: 1.12.x
+    script:
+      - make deps
+      - make build
+      - make test
+      - make install
+      - make uninstall
   - go: 1.11.x
     script:
       - make deps
