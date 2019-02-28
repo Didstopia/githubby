@@ -175,20 +175,21 @@ func init() {
 
 				// Remove the release
 				if !DryRun {
+					// If an error occurs, we'll simply log it and move on to the next one
 					err := client.RemoveRelease(owner, repo, release)
 					if err != nil {
-						fmt.Println("Error:", err)
-						os.Exit(1)
+						fmt.Println("Error deleting release:", err)
+						//os.Exit(1)
+					} else {
+						if Verbose {
+							log.Println("Successfully deleted release at", release.CreatedAt)
+						}
 					}
 				} else {
 					if Verbose {
 						log.Println("Dry run enabled, simulating cleanup")
 					}
 					time.Sleep(time.Duration(100) * time.Millisecond)
-				}
-
-				if Verbose {
-					log.Println("Successfully deleted release at", release.CreatedAt)
 				}
 
 				// Increment the progress bar
