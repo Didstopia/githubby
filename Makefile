@@ -6,7 +6,7 @@ export GOPROXY=
 export PATH := $(GOPATH)/bin:$(PATH)
 
 BINARY_VERSION?=0.0.1
-BINARY_OUTPUT?=github-release-cleaner
+BINARY_OUTPUT?=githubby
 EXTRA_FLAGS?=-mod=vendor
 
 define timed_function
