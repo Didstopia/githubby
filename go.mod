@@ -1,4 +1,4 @@
-module github.com/Didstopia/github-release-cleaner
+module github.com/Didstopia/githubby
 
 require (
 	github.com/fatih/color v1.7.0 // indirect

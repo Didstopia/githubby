@@ -53,8 +53,8 @@ after_success: bash <(curl -s https://codecov.io/bash)
 
 cache:
   directories:
-    - !$GOPATH/src/Didstopia/github-release-cleaner
+    - !$GOPATH/src/Didstopia/githubby
     - $GOPATH/src
-    - !$GOPATH/bin/Didstopia/github-release-cleaner
+    - !$GOPATH/bin/Didstopia/githubby
     - $GOPATH/bin
     - $GOPATH/pkg

@@ -1,8 +1,8 @@
-[![Build Status](https://travis-ci.org/Didstopia/github-release-cleaner.svg?branch=master)](https://travis-ci.org/Didstopia/github-release-cleaner)
+[![Build Status](https://travis-ci.org/Didstopia/githubby.svg?branch=master)](https://travis-ci.org/Didstopia/githubby)
 
-# GitHub Release Cleaner
+# GitHubby
 
-An easy and customizable way to run automatic GitHub Release cleanup.
+A multi-purpose CLI utility for interacting with GitHub.
 
 **NOTE:** _Work in progress, not ready for production use!_
 

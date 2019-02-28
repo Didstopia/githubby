@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Didstopia/github-release-cleaner/ghapi"
-	"github.com/Didstopia/github-release-cleaner/util"
+	"github.com/Didstopia/githubby/ghapi"
+	"github.com/Didstopia/githubby/util"
 	"github.com/google/go-github/v24/github"
 	"github.com/spf13/cobra" // Include the Cobra Commander package
 	pb "gopkg.in/cheggaaa/pb.v1"
@@ -44,9 +44,9 @@ var progressBar *pb.ProgressBar
 func init() {
 	// Create the primary command object
 	rootCmd = &cobra.Command{
-		Use:   "github-release-cleaner",
-		Short: "Automated GitHub Release cleanup",
-		Long:  `Provider an easy and customizable way to run automatic GitHub Release cleanup`,
+		Use:   "githubby",
+		Short: "GitHub CLI utility",
+		Long:  `A multi-purpose CLI utility for interacting with GitHub`,
 		Run: func(cmd *cobra.Command, args []string) {
 			/*if Verbose {
 				log.Println("Running command with", "Arguments:", args, "-", "Verbose:", Verbose, "-", "Dry Run:", DryRun, "-", "Repository:", Repository, "-", "Token:", Token)
