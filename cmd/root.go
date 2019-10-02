@@ -57,11 +57,13 @@ func init() {
 	// Add the clean command
 	rootCmd.AddCommand(cleanCmd)
 
+	// FIXME: This is persisted to config, so can't be easily disabled
 	// Add the "verbose" flag globally, so it's available for all commands
 	rootCmd.PersistentFlags().BoolVarP(&Verbose, "verbose", "v", false, "Enable verbose output")
 	viperConfig.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose"))
 	viperConfig.SetDefault("verbose", false)
 
+	// FIXME: This is persisted to config, so can't be easily disabled
 	// Add the "dry-run" flag globally, so it's available for all commands
 	rootCmd.PersistentFlags().BoolVarP(&DryRun, "dry-run", "D", false, "Simulate running")
 	viperConfig.BindPFlag("dry-run", rootCmd.PersistentFlags().Lookup("dry-run"))
