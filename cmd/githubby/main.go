@@ -8,14 +8,14 @@ import (
 
 // Version information - set via ldflags at build time
 var (
-	Version   = "dev"
-	Commit    = "unknown"
-	BuildDate = "unknown"
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
 )
 
 func main() {
 	// Set version info
-	cli.SetVersionInfo(Version, Commit, BuildDate)
+	cli.SetVersionInfo(version, commit, buildDate)
 
 	// Run the CLI
 	cli.Execute()

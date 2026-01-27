@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/Didstopia/githubby/ghapi"
 	"github.com/Didstopia/githubby/util"
-	"github.com/google/go-github/v24/github"
+	"github.com/google/go-github/v68/github"
 	"github.com/spf13/cobra"
-	pb "gopkg.in/cheggaaa/pb.v1"
+	"gopkg.in/cheggaaa/pb.v3"
 )
 
 // FilterDays sets the maximum amount of days since release
@@ -91,8 +90,8 @@ var cleanCmd = &cobra.Command{
 
 		// Loop through releases and check them against any enabled filters (newest to oldest)
 		for count, release := range releases {
-			// Parse the number of days since release (rounded up)
-			daysSinceRelease := int64(math.Round(time.Since(release.CreatedAt.Time).Hours() / 24))
+			// Parse the number of days since release (rounded up to include partial days)
+			daysSinceRelease := int64(math.Ceil(time.Since(release.CreatedAt.Time).Hours() / 24))
 
 			// fmt.Println("Checking release", release.CreatedAt)
 
@@ -137,7 +136,8 @@ var cleanCmd = &cobra.Command{
 
 		// Create a new progress bar based on the total cleanup release count
 		if progressEnabled && len(cleanupReleases) > 0 {
-			progressBar = pb.StartNew(len(cleanupReleases))
+			progressBar = pb.New(len(cleanupReleases))
+			progressBar.Start()
 		}
 
 		if Verbose {
@@ -177,7 +177,8 @@ var cleanCmd = &cobra.Command{
 
 		// Mark the progress bar as done
 		if progressEnabled && progressBar != nil {
-			progressBar.FinishPrint("\nSuccessfully cleaned up " + strconv.Itoa(len(cleanupReleases)) + " release(s)!")
+			progressBar.Finish()
+			fmt.Printf("\nSuccessfully cleaned up %d release(s)!\n", len(cleanupReleases))
 		}
 	},
 }

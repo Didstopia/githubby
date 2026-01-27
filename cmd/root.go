@@ -95,6 +95,7 @@ func init() {
 // Execute starts the Cobra commander, which in turn will handle execution and any arguments
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }

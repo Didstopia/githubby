@@ -1,0 +1,112 @@
+// Package git provides Git operations for repository management
+package git
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// Common errors
+var (
+	ErrGitNotInstalled = errors.New("git is not installed or not in PATH")
+	ErrNotAGitRepo     = errors.New("not a git repository")
+	ErrCloneFailed     = errors.New("git clone failed")
+	ErrPullFailed      = errors.New("git pull failed")
+)
+
+// Git provides Git operations
+type Git struct {
+	// GitPath is the path to the git executable
+	GitPath string
+}
+
+// New creates a new Git instance
+func New() (*Git, error) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return nil, ErrGitNotInstalled
+	}
+	return &Git{GitPath: gitPath}, nil
+}
+
+// Clone clones a repository to the target directory
+func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
+	cmd := exec.CommandContext(ctx, g.GitPath, "clone", url, targetDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w: %v", ErrCloneFailed, err)
+	}
+	return nil
+}
+
+// Pull performs a git pull in the specified directory
+func (g *Git) Pull(ctx context.Context, repoDir string) error {
+	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "pull")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w: %v", ErrPullFailed, err)
+	}
+	return nil
+}
+
+// IsGitRepo checks if a directory is a git repository
+func (g *Git) IsGitRepo(dir string) bool {
+	gitDir := filepath.Join(dir, ".git")
+	info, err := os.Stat(gitDir)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// GetRemoteURL returns the remote origin URL for a repository
+func (g *Git) GetRemoteURL(ctx context.Context, repoDir string) (string, error) {
+	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "remote", "get-url", "origin")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// Fetch performs a git fetch in the specified directory
+func (g *Git) Fetch(ctx context.Context, repoDir string) error {
+	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "fetch", "--all")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// GetDefaultBranch returns the default branch of a repository
+func (g *Git) GetDefaultBranch(ctx context.Context, repoDir string) (string, error) {
+	// Try to get the symbolic ref for HEAD
+	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD")
+	output, err := cmd.Output()
+	if err == nil {
+		ref := strings.TrimSpace(string(output))
+		// Extract branch name from refs/remotes/origin/main
+		parts := strings.Split(ref, "/")
+		if len(parts) > 0 {
+			return parts[len(parts)-1], nil
+		}
+	}
+
+	// Fallback: check for common default branch names
+	for _, branch := range []string{"main", "master"} {
+		checkCmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "rev-parse", "--verify", "refs/remotes/origin/"+branch)
+		if err := checkCmd.Run(); err == nil {
+			return branch, nil
+		}
+	}
+
+	return "", errors.New("could not determine default branch")
+}
