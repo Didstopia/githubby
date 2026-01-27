@@ -237,7 +237,7 @@ export GITHUB_TOKEN=ghp_your_token_here
 
 ### Prerequisites
 
-- Go 1.23 or later
+- Go 1.24 or later
 - Git
 
 ### Build
