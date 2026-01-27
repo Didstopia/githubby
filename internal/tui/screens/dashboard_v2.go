@@ -297,11 +297,11 @@ func (d *DashboardV2) handleSelection() tea.Cmd {
 			return tui.NewSyncRequestedMsg{}
 		}
 	case ActionSyncAll:
-		d.message = "Syncing all profiles..."
-		return tui.ClearMessageCmd(tui.MessageDisplayDuration)
+		d.message = "Sync All Profiles: Coming soon! For now, select individual profiles to sync."
+		return tui.ClearMessageCmd(tui.MessageDisplayDuration * 2)
 	case ActionSyncPending:
-		d.message = "Syncing pending profiles..."
-		return tui.ClearMessageCmd(tui.MessageDisplayDuration)
+		d.message = "Sync Pending: Coming soon! For now, select individual profiles to sync."
+		return tui.ClearMessageCmd(tui.MessageDisplayDuration * 2)
 	case ActionCleanReleases:
 		return tui.PushScreenCmd(tui.ScreenClean)
 	case ActionViewHistory:

@@ -10,54 +10,34 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	gh "github.com/google/go-github/v68/github"
 
+	"github.com/Didstopia/githubby/internal/git"
+	"github.com/Didstopia/githubby/internal/state"
+	"github.com/Didstopia/githubby/internal/sync"
 	"github.com/Didstopia/githubby/internal/tui"
-	"github.com/Didstopia/githubby/internal/tui/components"
 )
 
-// SyncStatus represents the status of a repository sync
-type SyncStatus int
-
-const (
-	SyncStatusPending SyncStatus = iota
-	SyncStatusInProgress
-	SyncStatusCloned
-	SyncStatusUpdated
-	SyncStatusSkipped
-	SyncStatusFailed
-)
-
-// SyncItem represents a repository being synced
-type SyncItem struct {
-	Name    string
-	Status  SyncStatus
-	Message string
-}
-
-// SyncProgressScreen shows sync operation progress
+// SyncProgressScreen shows sync operation progress for a profile
 type SyncProgressScreen struct {
 	ctx    context.Context
-	cancel context.CancelFunc
+	app    *tui.App
 	styles *tui.Styles
 	keys   tui.KeyMap
 
-	// Repositories to sync
-	repos     []*gh.Repository
-	targetDir string
+	// Profile being synced
+	profile *state.SyncProfile
 
 	// Progress tracking
-	items       []SyncItem
-	currentIdx  int
-	progress    progress.Model
-	spinner     spinner.Model
+	items      []syncProgressItem
+	currentIdx int
+	progress   progress.Model
+	spinner    spinner.Model
 
 	// Statistics
-	cloned   int
-	updated  int
-	skipped  int
-	failed   int
+	cloned    int
+	updated   int
+	skipped   int
+	failed    int
 	startTime time.Time
 
 	// Dimensions
@@ -65,15 +45,24 @@ type SyncProgressScreen struct {
 	height int
 
 	// State
+	loading  bool
 	syncing  bool
 	complete bool
 	err      error
+
+	// Exit confirmation
+	exitPending bool
+	exitKey     string
 }
 
-// NewSyncProgressScreen creates a new sync progress screen
-func NewSyncProgressScreen(ctx context.Context, repos []*gh.Repository, targetDir string) *SyncProgressScreen {
-	ctx, cancel := context.WithCancel(ctx)
+type syncProgressItem struct {
+	name    string
+	status  string // "pending", "syncing", "cloned", "updated", "skipped", "failed"
+	message string
+}
 
+// NewSyncProgress creates a new sync progress screen
+func NewSyncProgress(ctx context.Context, app *tui.App) *SyncProgressScreen {
 	// Create progress bar
 	p := progress.New(
 		progress.WithDefaultGradient(),
@@ -85,51 +74,64 @@ func NewSyncProgressScreen(ctx context.Context, repos []*gh.Repository, targetDi
 	s.Spinner = spinner.Dot
 	s.Style = tui.GetStyles().Spinner
 
-	// Initialize items
-	items := make([]SyncItem, len(repos))
-	for i, repo := range repos {
-		items[i] = SyncItem{
-			Name:   repo.GetFullName(),
-			Status: SyncStatusPending,
-		}
-	}
-
 	return &SyncProgressScreen{
-		ctx:       ctx,
-		cancel:    cancel,
-		styles:    tui.GetStyles(),
-		keys:      tui.GetKeyMap(),
-		repos:     repos,
-		targetDir: targetDir,
-		items:     items,
-		progress:  p,
-		spinner:   s,
-		width:     80,
-		height:    24,
+		ctx:      ctx,
+		app:      app,
+		styles:   tui.GetStyles(),
+		keys:     tui.GetKeyMap(),
+		progress: p,
+		spinner:  s,
+		width:    80,
+		height:   24,
+		loading:  true,
 	}
 }
 
 // Title returns the screen title
 func (s *SyncProgressScreen) Title() string {
-	return "Syncing Repositories"
+	if s.profile != nil {
+		return fmt.Sprintf("Syncing %s", s.profile.Name)
+	}
+	return "Syncing"
 }
 
 // ShortHelp returns key bindings for the footer
 func (s *SyncProgressScreen) ShortHelp() []key.Binding {
 	if s.complete {
 		return []key.Binding{
+			s.keys.Select,
 			s.keys.Back,
 		}
 	}
-	return []key.Binding{
-		s.keys.Cancel,
-	}
+	return []key.Binding{}
 }
 
 // Init initializes the sync progress screen
 func (s *SyncProgressScreen) Init() tea.Cmd {
+	s.profile = s.app.SelectedProfile()
+	if s.profile == nil {
+		s.err = fmt.Errorf("no profile selected")
+		s.loading = false
+		s.complete = true
+		return nil
+	}
+
 	s.startTime = time.Now()
+
+	// Initialize items from profile's selected repos
+	if len(s.profile.SelectedRepos) > 0 {
+		s.items = make([]syncProgressItem, len(s.profile.SelectedRepos))
+		for i, repoName := range s.profile.SelectedRepos {
+			s.items[i] = syncProgressItem{
+				name:   repoName,
+				status: "pending",
+			}
+		}
+	}
+
+	s.loading = false
 	s.syncing = true
+
 	return tea.Batch(
 		s.spinner.Tick,
 		s.startSync(),
@@ -147,25 +149,45 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.progress.Width = msg.Width - 20
 
 	case tea.KeyMsg:
-		switch {
-		case key.Matches(msg, s.keys.Cancel):
-			if s.syncing {
-				s.cancel()
-				s.syncing = false
-				s.complete = true
-			}
-		case key.Matches(msg, s.keys.Back):
-			if s.complete {
+		// Handle Ctrl+C
+		if msg.Type == tea.KeyCtrlC {
+			if s.exitPending && s.exitKey == "ctrl+c" {
 				return s, tui.PopScreenCmd()
+			}
+			s.exitPending = true
+			s.exitKey = "ctrl+c"
+			return s, tui.ExitTimeoutCmd(tui.ExitConfirmTimeout)
+		}
+
+		switch {
+		case key.Matches(msg, s.keys.Back), key.Matches(msg, s.keys.Select):
+			s.exitPending = false
+			if s.complete {
+				return s, tea.Batch(
+					tui.PopScreenCmd(),
+					tui.RefreshDashboardCmd(),
+				)
 			}
 		case key.Matches(msg, s.keys.Quit):
 			if s.complete {
-				return s, tui.QuitCmd()
+				if s.exitPending && s.exitKey == "q" {
+					return s, tui.QuitCmd()
+				}
+				s.exitPending = true
+				s.exitKey = "q"
+				return s, tui.ExitTimeoutCmd(tui.ExitConfirmTimeout)
 			}
 		}
 
+		if s.exitPending {
+			s.exitPending = false
+		}
+
+	case tui.ExitTimeoutMsg:
+		s.exitPending = false
+
 	case spinner.TickMsg:
-		if s.syncing {
+		if s.syncing || s.loading {
 			var cmd tea.Cmd
 			s.spinner, cmd = s.spinner.Update(msg)
 			cmds = append(cmds, cmd)
@@ -177,15 +199,21 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.progress = progressModel.(progress.Model)
 		cmds = append(cmds, cmd)
 
-	case syncProgressMsg:
-		s.updateItem(msg.index, msg.status, msg.message)
-		if !s.complete && s.syncing {
-			cmds = append(cmds, s.syncNext())
-		}
-
-	case syncCompleteMsg:
+	case profileSyncCompleteMsg:
 		s.syncing = false
 		s.complete = true
+		s.cloned = msg.cloned
+		s.updated = msg.updated
+		s.skipped = msg.skipped
+		s.failed = msg.failed
+		s.err = msg.err
+
+		// Update profile's last sync time
+		if s.app.Storage() != nil && s.profile != nil {
+			s.profile.LastSyncAt = time.Now()
+			s.app.Storage().UpdateProfile(s.profile)
+			s.app.Storage().Save()
+		}
 	}
 
 	return s, tea.Batch(cmds...)
@@ -195,202 +223,163 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (s *SyncProgressScreen) View() string {
 	var content strings.Builder
 
-	// Progress header
+	if s.loading {
+		content.WriteString(s.spinner.View())
+		content.WriteString(" Loading profile...")
+		return s.styles.Content.Render(content.String())
+	}
+
+	if s.err != nil && !s.syncing && len(s.items) == 0 {
+		content.WriteString(s.styles.Error.Render("Error: " + s.err.Error()))
+		content.WriteString("\n\n")
+		content.WriteString("Press " + s.styles.HelpKey.Render("Esc") + " to go back")
+		return s.styles.Content.Render(content.String())
+	}
+
+	// Title
+	if s.profile != nil {
+		content.WriteString(s.styles.FormTitle.Render(fmt.Sprintf("Syncing: %s", s.profile.Name)))
+	} else {
+		content.WriteString(s.styles.FormTitle.Render("Syncing"))
+	}
+	content.WriteString("\n\n")
+
+	// Progress
 	total := len(s.items)
 	done := s.cloned + s.updated + s.skipped + s.failed
-	pct := float64(done) / float64(total)
-
-	content.WriteString(s.styles.FormTitle.Render("Syncing Repositories"))
-	content.WriteString("\n\n")
-
-	// Progress bar
-	content.WriteString(s.progress.ViewAs(pct))
-	content.WriteString(fmt.Sprintf(" %d/%d", done, total))
-	content.WriteString("\n\n")
-
-	// Statistics
-	stats := []string{}
-	if s.cloned > 0 {
-		stats = append(stats, s.styles.Success.Render(fmt.Sprintf("%d cloned", s.cloned)))
-	}
-	if s.updated > 0 {
-		stats = append(stats, s.styles.Info.Render(fmt.Sprintf("%d updated", s.updated)))
-	}
-	if s.skipped > 0 {
-		stats = append(stats, s.styles.Warning.Render(fmt.Sprintf("%d skipped", s.skipped)))
-	}
-	if s.failed > 0 {
-		stats = append(stats, s.styles.Error.Render(fmt.Sprintf("%d failed", s.failed)))
-	}
-	if len(stats) > 0 {
-		content.WriteString(strings.Join(stats, "  "))
+	if total > 0 {
+		pct := float64(done) / float64(total)
+		content.WriteString(s.progress.ViewAs(pct))
+		content.WriteString(fmt.Sprintf(" %d/%d", done, total))
 		content.WriteString("\n\n")
 	}
 
 	// Current operation
-	if s.syncing && s.currentIdx < len(s.items) {
+	if s.syncing {
 		content.WriteString(s.spinner.View())
-		content.WriteString(" " + s.items[s.currentIdx].Name)
-		content.WriteString("\n\n")
-	}
-
-	// Recent items (last 10)
-	content.WriteString("Recent:\n")
-	start := 0
-	if done > 10 {
-		start = done - 10
-	}
-
-	for i := start; i < len(s.items) && i < done+1; i++ {
-		item := s.items[i]
-		var statusIcon string
-		var nameStyle lipgloss.Style
-
-		switch item.Status {
-		case SyncStatusPending:
-			statusIcon = s.styles.Muted.Render("○")
-			nameStyle = s.styles.Muted
-		case SyncStatusInProgress:
-			statusIcon = s.styles.Info.Render("◐")
-			nameStyle = s.styles.Info
-		case SyncStatusCloned:
-			statusIcon = s.styles.Success.Render("●")
-			nameStyle = s.styles.Success
-		case SyncStatusUpdated:
-			statusIcon = s.styles.Info.Render("●")
-			nameStyle = s.styles.Info
-		case SyncStatusSkipped:
-			statusIcon = s.styles.Warning.Render("○")
-			nameStyle = s.styles.Warning
-		case SyncStatusFailed:
-			statusIcon = s.styles.Error.Render("●")
-			nameStyle = s.styles.Error
-		}
-
-		line := fmt.Sprintf("  %s %s", statusIcon, nameStyle.Render(item.Name))
-		if item.Message != "" {
-			line += s.styles.Muted.Render(" - " + item.Message)
-		}
-		content.WriteString(line + "\n")
-	}
-
-	// Completion message
-	if s.complete {
+		content.WriteString(fmt.Sprintf(" Syncing %d repositories to %s...", total, s.profile.TargetDir))
 		content.WriteString("\n")
-		elapsed := time.Since(s.startTime).Round(time.Second)
-		content.WriteString(s.styles.Success.Render(fmt.Sprintf("Sync complete in %s", elapsed)))
+		content.WriteString(s.styles.Muted.Render("This may take a while for large repositories."))
 		content.WriteString("\n\n")
-		content.WriteString("Press " + s.styles.HelpKey.Render("Esc") + " to go back")
 	}
 
-	return lipgloss.NewStyle().
-		Padding(1, 2).
-		Render(content.String())
-}
-
-// updateItem updates a sync item's status
-func (s *SyncProgressScreen) updateItem(index int, status SyncStatus, message string) {
-	if index >= 0 && index < len(s.items) {
-		s.items[index].Status = status
-		s.items[index].Message = message
-
-		switch status {
-		case SyncStatusCloned:
-			s.cloned++
-		case SyncStatusUpdated:
-			s.updated++
-		case SyncStatusSkipped:
-			s.skipped++
-		case SyncStatusFailed:
-			s.failed++
+	// Results (when complete)
+	if s.complete {
+		if s.err != nil {
+			content.WriteString(s.styles.Error.Render("Sync completed with errors: " + s.err.Error()))
+		} else if s.failed > 0 {
+			content.WriteString(s.styles.Warning.Render(fmt.Sprintf("Synced %d repositories with %d failures", total, s.failed)))
+		} else {
+			content.WriteString(s.styles.Success.Render(fmt.Sprintf("Successfully synced %d repositories!", total)))
 		}
+		content.WriteString("\n\n")
+
+		// Statistics
+		content.WriteString(s.styles.Info.Render("Results:"))
+		content.WriteString("\n")
+		if s.cloned > 0 {
+			content.WriteString(fmt.Sprintf("  %s Cloned: %d\n", s.styles.Success.Render("●"), s.cloned))
+		}
+		if s.updated > 0 {
+			content.WriteString(fmt.Sprintf("  %s Updated: %d\n", s.styles.Success.Render("●"), s.updated))
+		}
+		if s.skipped > 0 {
+			content.WriteString(fmt.Sprintf("  %s Skipped: %d\n", s.styles.Warning.Render("●"), s.skipped))
+		}
+		if s.failed > 0 {
+			content.WriteString(fmt.Sprintf("  %s Failed: %d\n", s.styles.Error.Render("●"), s.failed))
+		}
+		if s.cloned == 0 && s.updated == 0 && s.skipped == 0 && s.failed == 0 {
+			content.WriteString(s.styles.Muted.Render("  No changes - all repositories up to date\n"))
+		}
+
+		elapsed := time.Since(s.startTime).Round(time.Second)
+		content.WriteString("\n")
+		content.WriteString(s.styles.Muted.Render(fmt.Sprintf("Completed in %s", elapsed)))
+		content.WriteString("\n\n")
+		content.WriteString("Press " + s.styles.HelpKey.Render("Enter") + " to return to dashboard")
 	}
+
+	// Exit confirmation
+	if s.exitPending {
+		var msg string
+		switch s.exitKey {
+		case "ctrl+c":
+			msg = "Press Ctrl+C again to cancel"
+		case "q":
+			msg = "Press q again to quit"
+		}
+		content.WriteString("\n\n")
+		content.WriteString(s.styles.Warning.Render(msg))
+	}
+
+	return s.styles.Content.Render(content.String())
 }
 
 // startSync starts the sync operation
 func (s *SyncProgressScreen) startSync() tea.Cmd {
-	return s.syncNext()
-}
-
-// syncNext syncs the next repository
-func (s *SyncProgressScreen) syncNext() tea.Cmd {
-	// Find next pending item
-	nextIdx := -1
-	for i, item := range s.items {
-		if item.Status == SyncStatusPending {
-			nextIdx = i
-			break
-		}
-	}
-
-	if nextIdx < 0 {
-		// All done
-		return func() tea.Msg {
-			return syncCompleteMsg{}
-		}
-	}
-
-	s.currentIdx = nextIdx
-	s.items[nextIdx].Status = SyncStatusInProgress
-
 	return func() tea.Msg {
-		// Simulate sync operation
-		// In real implementation, this would call the sync package
-		select {
-		case <-s.ctx.Done():
-			return syncProgressMsg{
-				index:   nextIdx,
-				status:  SyncStatusSkipped,
-				message: "cancelled",
+		if s.profile == nil {
+			return profileSyncCompleteMsg{err: fmt.Errorf("no profile")}
+		}
+
+		client := s.app.GitHubClient()
+		if client == nil {
+			return profileSyncCompleteMsg{err: fmt.Errorf("not authenticated")}
+		}
+
+		// Use quiet git mode
+		gitOps, err := git.NewQuiet()
+		if err != nil {
+			return profileSyncCompleteMsg{err: fmt.Errorf("git not available: %w", err)}
+		}
+
+		opts := &sync.Options{
+			Target:         s.profile.TargetDir,
+			IncludePrivate: s.profile.IncludePrivate,
+		}
+
+		syncer := sync.New(client, gitOps, opts)
+
+		var cloned, updated, skipped, failed int
+
+		// Sync each repo in the profile
+		for _, repoFullName := range s.profile.SelectedRepos {
+			parts := strings.SplitN(repoFullName, "/", 2)
+			if len(parts) != 2 {
+				failed++
+				continue
 			}
-		case <-time.After(100 * time.Millisecond):
-			// Simulate success/failure
-			// In real implementation, this would be the actual result
-			return syncProgressMsg{
-				index:   nextIdx,
-				status:  SyncStatusCloned,
-				message: "cloned",
+			owner, repo := parts[0], parts[1]
+
+			result, err := syncer.SyncRepo(s.ctx, owner, repo)
+			if err != nil {
+				failed++
+				continue
 			}
+
+			if result != nil {
+				cloned += len(result.Cloned)
+				updated += len(result.Updated)
+				skipped += len(result.Skipped)
+				failed += len(result.Failed)
+			}
+		}
+
+		return profileSyncCompleteMsg{
+			cloned:  cloned,
+			updated: updated,
+			skipped: skipped,
+			failed:  failed,
 		}
 	}
 }
 
 // Message types
-type syncProgressMsg struct {
-	index   int
-	status  SyncStatus
-	message string
-}
-
-type syncCompleteMsg struct{}
-
-// ProgressCallback is called to report sync progress
-type ProgressCallback func(repo string, status components.ProgressStatus, message string)
-
-// CreateProgressCallback creates a callback that sends messages to the TUI
-func CreateProgressCallback(p *tea.Program) ProgressCallback {
-	return func(repo string, status components.ProgressStatus, message string) {
-		// Convert component status to sync status
-		var syncStatus SyncStatus
-		switch status {
-		case components.StatusPending:
-			syncStatus = SyncStatusPending
-		case components.StatusInProgress:
-			syncStatus = SyncStatusInProgress
-		case components.StatusSuccess:
-			syncStatus = SyncStatusCloned
-		case components.StatusWarning:
-			syncStatus = SyncStatusSkipped
-		case components.StatusError:
-			syncStatus = SyncStatusFailed
-		case components.StatusSkipped:
-			syncStatus = SyncStatusSkipped
-		}
-
-		p.Send(syncProgressMsg{
-			index:   -1, // Will be resolved by repo name
-			status:  syncStatus,
-			message: message,
-		})
-	}
+type profileSyncCompleteMsg struct {
+	cloned  int
+	updated int
+	skipped int
+	failed  int
+	err     error
 }
