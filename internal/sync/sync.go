@@ -516,24 +516,27 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 // pullRepo pulls updates for an existing repository.
 // Returns ProgressUpToDate if already current, ProgressUpdated if pulled, or error.
 func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath string) (ProgressStatus, error) {
-	// Fast check: compare local and remote HEAD to skip unnecessary pulls
+	// Fast check: compare local remote-tracking branch with GitHub's HEAD
+	// We compare origin/<branch> (not local HEAD) because git fetch only updates
+	// remote-tracking branches, not the local HEAD
 	if s.ghClient != nil {
-		localSHA, err := s.git.GetHEAD(ctx, localPath)
-		if err == nil {
-			// Get default branch (usually main or master)
-			defaultBranch := repo.GetDefaultBranch()
-			if defaultBranch == "" {
-				defaultBranch = "main"
-			}
+		defaultBranch := repo.GetDefaultBranch()
+		if defaultBranch == "" {
+			defaultBranch = "main"
+		}
 
+		// Get the SHA of our local remote-tracking branch (e.g., origin/main)
+		localSHA, err := s.git.GetRemoteBranchSHA(ctx, localPath, "origin", defaultBranch)
+		if err == nil {
+			// Get the current SHA from GitHub
 			remoteSHA, err := s.ghClient.GetBranchRef(ctx, repo.GetOwner().GetLogin(), repo.GetName(), defaultBranch)
 			if err == nil && localSHA == remoteSHA {
-				// Already up-to-date, skip the pull
+				// Already up-to-date, skip the fetch
 				return ProgressUpToDate, nil
 			}
-			// On any error, fall through to normal pull
+			// On any error, fall through to normal fetch
 		}
-		// On any error, fall through to normal pull
+		// On any error, fall through to normal fetch
 	}
 
 	// Fetch all branches from all remotes (for complete backup of all branches)

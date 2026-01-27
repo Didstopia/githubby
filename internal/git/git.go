@@ -198,6 +198,17 @@ func (g *Git) GetHEAD(ctx context.Context, repoDir string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// GetRemoteBranchSHA returns the SHA of a remote-tracking branch (e.g., origin/main)
+func (g *Git) GetRemoteBranchSHA(ctx context.Context, repoDir, remote, branch string) (string, error) {
+	ref := fmt.Sprintf("%s/%s", remote, branch)
+	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "rev-parse", ref)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // GetDefaultBranch returns the default branch of a repository
 func (g *Git) GetDefaultBranch(ctx context.Context, repoDir string) (string, error) {
 	// Try to get the symbolic ref for HEAD
