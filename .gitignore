@@ -1,3 +1,7 @@
+### Claude ###
+.claude/
+CLAUDE.md
+
 ### Code Coverage ###
 coverage.txt
 
