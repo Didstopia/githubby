@@ -66,6 +66,10 @@ type DashboardV2 struct {
 	// Exit confirmation state
 	exitPending bool
 	exitKey     string
+
+	// Delete confirmation state
+	deleteConfirmPending bool
+	deleteProfileID      string
 }
 
 // NewDashboardV2 creates a new dashboard screen
@@ -138,12 +142,15 @@ func (d *DashboardV2) initList() {
 func (d *DashboardV2) buildMenuItems() []list.Item {
 	items := []list.Item{}
 
-	// Quick actions
-	items = append(items, DashboardItem{
-		title:       "New Sync Profile",
-		description: "Set up a new repository sync configuration",
-		action:      ActionNewSync,
-	})
+	// Only show "New Sync Profile" in menu if no profiles exist
+	// Otherwise, the "n" shortcut is always available
+	if len(d.profiles) == 0 {
+		items = append(items, DashboardItem{
+			title:       "New Sync Profile",
+			description: "Set up a new repository sync configuration",
+			action:      ActionNewSync,
+		})
+	}
 
 	if len(d.profiles) > 0 {
 		items = append(items, DashboardItem{
@@ -168,7 +175,7 @@ func (d *DashboardV2) buildMenuItems() []list.Item {
 			lastSync = formatTimeAgo(p.LastSyncAt)
 		}
 		items = append(items, DashboardItem{
-			title:       fmt.Sprintf("  %s", p.Name),
+			title:       p.Name,
 			description: fmt.Sprintf("%s/%s - Last sync: %s", p.Type, p.Source, lastSync),
 			profileID:   p.ID,
 		})
@@ -191,12 +198,21 @@ func (d *DashboardV2) Title() string {
 
 // ShortHelp returns key bindings for the footer
 func (d *DashboardV2) ShortHelp() []key.Binding {
-	return []key.Binding{
+	bindings := []key.Binding{
 		d.keys.Up,
 		d.keys.Down,
 		d.keys.Select,
 		key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new profile")),
 	}
+
+	// Add contextual shortcuts if a profile is selected
+	if item, ok := d.actionList.SelectedItem().(DashboardItem); ok && item.profileID != "" {
+		bindings = append(bindings,
+			key.NewBinding(key.WithKeys("d", "x"), key.WithHelp("d/x", "delete")),
+		)
+	}
+
+	return bindings
 }
 
 // Init initializes the dashboard screen
@@ -234,8 +250,28 @@ func (d *DashboardV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.String() == "n":
 			d.exitPending = false
+			d.deleteConfirmPending = false
 			return d, func() tea.Msg {
 				return tui.NewSyncRequestedMsg{}
+			}
+
+		case msg.String() == "d" || msg.String() == "x":
+			d.exitPending = false
+			// Check if a profile is selected
+			if item, ok := d.actionList.SelectedItem().(DashboardItem); ok && item.profileID != "" {
+				if d.deleteConfirmPending && d.deleteProfileID == item.profileID {
+					// Confirmed delete
+					d.deleteConfirmPending = false
+					return d, d.deleteProfile(item.profileID)
+				}
+				// First press - ask for confirmation
+				d.deleteConfirmPending = true
+				d.deleteProfileID = item.profileID
+				profile := d.app.Storage().GetProfile(item.profileID)
+				if profile != nil {
+					d.message = fmt.Sprintf("Press d/x again to delete '%s'", profile.Name)
+				}
+				return d, tui.ClearMessageCmd(3 * time.Second)
 			}
 
 		case key.Matches(msg, d.keys.Back):
@@ -254,8 +290,13 @@ func (d *DashboardV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d.exitKey = "q"
 			return d, tui.ExitTimeoutCmd(tui.ExitConfirmTimeout)
 		}
-		if d.exitPending {
+		// Reset confirmations on other key presses
+		if d.exitPending && msg.String() != "q" && msg.String() != "escape" {
 			d.exitPending = false
+		}
+		if d.deleteConfirmPending && msg.String() != "d" && msg.String() != "x" {
+			d.deleteConfirmPending = false
+			d.message = ""
 		}
 
 	case tui.ExitTimeoutMsg:
@@ -263,10 +304,21 @@ func (d *DashboardV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tui.ClearMessageMsg:
 		d.message = ""
+		d.deleteConfirmPending = false
 
 	case tui.RefreshDashboardMsg:
 		d.loadData()
 		d.initList()
+
+	case profileDeletedMsg:
+		d.loadData()
+		d.initList()
+		d.message = fmt.Sprintf("Deleted '%s'", msg.name)
+		return d, tui.ClearMessageCmd(tui.MessageDisplayDuration)
+
+	case tui.ErrorMsg:
+		d.message = fmt.Sprintf("Error: %s", msg.Err.Error())
+		return d, tui.ClearMessageCmd(tui.MessageDisplayDuration)
 	}
 
 	// Update list
@@ -322,6 +374,32 @@ func (d *DashboardV2) handleSelection() tea.Cmd {
 	}
 
 	return nil
+}
+
+// deleteProfile deletes a profile by ID
+func (d *DashboardV2) deleteProfile(profileID string) tea.Cmd {
+	return func() tea.Msg {
+		if d.app.Storage() == nil {
+			return tui.ErrorMsg{Err: fmt.Errorf("storage not available")}
+		}
+
+		profile := d.app.Storage().GetProfile(profileID)
+		profileName := "profile"
+		if profile != nil {
+			profileName = profile.Name
+		}
+
+		if err := d.app.Storage().DeleteProfile(profileID); err != nil {
+			return tui.ErrorMsg{Err: err}
+		}
+
+		return profileDeletedMsg{name: profileName}
+	}
+}
+
+// profileDeletedMsg signals a profile was deleted
+type profileDeletedMsg struct {
+	name string
 }
 
 // View renders the dashboard screen
