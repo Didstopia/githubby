@@ -148,6 +148,9 @@ Tests use mock implementations (`internal/github/mock_client.go`) for isolation.
 
 ## CI/CD
 
-- **CI**: `.github/workflows/ci.yml` - tests on Go 1.21/1.22, Linux/macOS/Windows
-- **Release**: `.github/workflows/release.yml` - GoReleaser on tag push
+- **CI**: `.github/workflows/ci.yml` - tests on Go 1.22/1.23, Linux/macOS/Windows
+- **Release**: `.github/workflows/release.yml` - GoReleaser on GitHub release publish
+- **Security**: `.github/workflows/security.yml` - CodeQL analysis (weekly + on push/PR)
+- **Dependency Review**: `.github/workflows/dependency-review.yml` - PR vulnerability checks
+- **Dependabot**: `.github/dependabot.yml` - automated dependency updates (weekly)
 - Builds: linux/darwin/windows, amd64/arm64
