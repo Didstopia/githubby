@@ -3,6 +3,7 @@ package screens
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -46,8 +47,10 @@ type SyncProgressScreen struct {
 	totalRepos int
 
 	// ETA tracking
-	lastUpdateTime time.Time
-	reposCompleted int
+	lastUpdateTime   time.Time
+	reposCompleted   int
+	lastDisplayedETA time.Duration
+	etaUpdateCount   int
 
 	// Dimensions
 	width  int
@@ -336,16 +339,38 @@ func (s *SyncProgressScreen) View() string {
 		content.WriteString(s.progress.ViewAs(pct))
 		content.WriteString(fmt.Sprintf(" %d/%d repos", done, total))
 
-		// Calculate and show ETA if we have enough data
-		if s.syncing && done > 0 {
+		// Calculate and show ETA with warmup and smoothing
+		// Only show ETA after minimum sample size to avoid wild early estimates
+		minSamples := min(10, total/10)
+		if minSamples < 3 {
+			minSamples = 3
+		}
+
+		if s.syncing && done >= minSamples {
 			elapsed := time.Since(s.startTime)
 			avgPerRepo := elapsed / time.Duration(done)
 			remaining := total - done
-			eta := avgPerRepo * time.Duration(remaining)
+			newETA := avgPerRepo * time.Duration(remaining)
+
+			// Smooth the ETA: blend 70% old, 30% new (exponential moving average)
+			if s.lastDisplayedETA > 0 {
+				newETA = time.Duration(float64(s.lastDisplayedETA)*0.7 + float64(newETA)*0.3)
+			}
+
+			// Only update display if ETA changed by >5% or it's been a while
+			etaChangePercent := 0.0
+			if s.lastDisplayedETA > 0 {
+				etaChangePercent = math.Abs(float64(newETA-s.lastDisplayedETA)) / float64(s.lastDisplayedETA)
+			}
+
+			if s.lastDisplayedETA == 0 || etaChangePercent > 0.05 || s.etaUpdateCount%5 == 0 {
+				s.lastDisplayedETA = newETA
+			}
+			s.etaUpdateCount++
 
 			// Only show ETA if it's meaningful (> 5 seconds remaining)
-			if eta > 5*time.Second {
-				content.WriteString(fmt.Sprintf(" • ~%s remaining", humanizeDuration(eta)))
+			if s.lastDisplayedETA > 5*time.Second {
+				content.WriteString(fmt.Sprintf(" • ~%s remaining", humanizeDuration(s.lastDisplayedETA)))
 			}
 		}
 		content.WriteString("\n\n")
@@ -488,9 +513,12 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 
 	// First, collect all repos to sync to get accurate total
 	type repoToSync struct {
-		owner   string
-		repo    string
-		profile *state.SyncProfile
+		owner         string
+		repo          string
+		defaultBranch string
+		cloneURL      string
+		isPrivate     bool
+		profile       *state.SyncProfile
 	}
 	var allRepos []repoToSync
 
@@ -524,21 +552,40 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 			}
 			for _, r := range repos {
 				allRepos = append(allRepos, repoToSync{
-					owner:   r.GetOwner().GetLogin(),
-					repo:    r.GetName(),
-					profile: profile,
+					owner:         r.GetOwner().GetLogin(),
+					repo:          r.GetName(),
+					defaultBranch: r.GetDefaultBranch(),
+					cloneURL:      r.GetCloneURL(),
+					isPrivate:     r.GetPrivate(),
+					profile:       profile,
 				})
 			}
 		} else {
-			// Use specific repos from profile
+			// Use specific repos from profile - fetch repo data upfront
 			for _, repoFullName := range profile.SelectedRepos {
 				parts := strings.SplitN(repoFullName, "/", 2)
 				if len(parts) == 2 {
-					allRepos = append(allRepos, repoToSync{
-						owner:   parts[0],
-						repo:    parts[1],
-						profile: profile,
-					})
+					owner, repoName := parts[0], parts[1]
+					// Fetch repo data to get defaultBranch, cloneURL, etc.
+					repoData, err := client.GetRepository(s.ctx, owner, repoName)
+					if err != nil {
+						// If we can't fetch repo data, still add it but without the optimization data
+						// The sync will fall back to fetching it again
+						allRepos = append(allRepos, repoToSync{
+							owner:   owner,
+							repo:    repoName,
+							profile: profile,
+						})
+					} else {
+						allRepos = append(allRepos, repoToSync{
+							owner:         owner,
+							repo:          repoName,
+							defaultBranch: repoData.GetDefaultBranch(),
+							cloneURL:      repoData.GetCloneURL(),
+							isPrivate:     repoData.GetPrivate(),
+							profile:       profile,
+						})
+					}
 				}
 			}
 		}
@@ -582,7 +629,17 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 				}
 
 				syncer := sync.New(client, gitOps, opts)
-				result, err := syncer.SyncRepo(s.ctx, r.owner, r.repo)
+
+				// Construct gh.Repository from our cached data to avoid redundant API call
+				// This enables fast sync optimization (comparing local/remote HEAD SHA)
+				repo := &gh.Repository{
+					Name:          gh.Ptr(r.repo),
+					DefaultBranch: gh.Ptr(r.defaultBranch),
+					Owner:         &gh.User{Login: gh.Ptr(r.owner)},
+					CloneURL:      gh.Ptr(r.cloneURL),
+					Private:       gh.Ptr(r.isPrivate),
+				}
+				result, err := syncer.SyncRepoWithData(s.ctx, repo)
 
 				status := "skipped"
 				if err != nil {

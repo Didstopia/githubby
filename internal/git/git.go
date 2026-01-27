@@ -17,6 +17,7 @@ var (
 	ErrNotAGitRepo     = errors.New("not a git repository")
 	ErrCloneFailed     = errors.New("git clone failed")
 	ErrPullFailed      = errors.New("git pull failed")
+	ErrFetchFailed     = errors.New("git fetch failed")
 )
 
 // Git provides Git operations
@@ -159,6 +160,32 @@ func (g *Git) Fetch(ctx context.Context, repoDir string) error {
 		cmd.Stderr = os.Stderr
 	}
 	return cmd.Run()
+}
+
+// FetchAll fetches all branches from all remotes with pruning.
+// This updates all remote-tracking branches without modifying the working directory.
+// Use --prune to remove local references to branches deleted on remote.
+func (g *Git) FetchAll(ctx context.Context, repoDir string) error {
+	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "fetch", "--all", "--prune")
+	if !g.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+
+	// Always capture stderr for error reporting
+	var stderrBuf strings.Builder
+	if g.Quiet {
+		cmd.Stderr = &stderrBuf
+	}
+
+	if err := cmd.Run(); err != nil {
+		errMsg := stderrBuf.String()
+		if errMsg != "" {
+			return fmt.Errorf("%w: %s", ErrFetchFailed, strings.TrimSpace(errMsg))
+		}
+		return fmt.Errorf("%w: %v", ErrFetchFailed, err)
+	}
+	return nil
 }
 
 // GetHEAD returns the SHA of HEAD in the repository

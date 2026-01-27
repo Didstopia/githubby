@@ -157,6 +157,12 @@ func (s *Syncer) SyncRepo(ctx context.Context, owner, repo string) (*Result, err
 	return s.syncRepos(ctx, []*gh.Repository{repository})
 }
 
+// SyncRepoWithData syncs a single repository using pre-fetched data.
+// This avoids redundant API calls when the repository data is already available.
+func (s *Syncer) SyncRepoWithData(ctx context.Context, repo *gh.Repository) (*Result, error) {
+	return s.syncRepos(ctx, []*gh.Repository{repo})
+}
+
 // syncResult holds the result of syncing a single repo
 type syncResult struct {
 	repoName string
@@ -530,9 +536,11 @@ func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath st
 		// On any error, fall through to normal pull
 	}
 
-	// Pull changes (includes fetch internally, no need for separate fetch)
-	if err := s.git.Pull(ctx, localPath); err != nil {
-		return ProgressFailed, fmt.Errorf("pull failed: %w", err)
+	// Fetch all branches from all remotes (for complete backup of all branches)
+	// Using fetch instead of pull so we update all remote-tracking branches
+	// without modifying the working directory
+	if err := s.git.FetchAll(ctx, localPath); err != nil {
+		return ProgressFailed, fmt.Errorf("fetch failed: %w", err)
 	}
 
 	// Handle LFS if needed (non-fatal - repo still usable without LFS objects)
