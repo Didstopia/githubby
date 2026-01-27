@@ -523,6 +523,7 @@ func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath st
 		lastFetch, err := s.git.GetLastFetchTime(localPath)
 		if err == nil && !lastFetch.IsZero() {
 			// Add a small buffer (1 second) to handle timing edge cases
+			// nolint:staticcheck // QF1008 is a false positive - .Time is needed for comparison with time.Time
 			if repo.PushedAt.Time.Before(lastFetch.Add(-time.Second)) || repo.PushedAt.Time.Equal(lastFetch) {
 				// No pushes since our last fetch, we're up-to-date
 				return ProgressUpToDate, nil
