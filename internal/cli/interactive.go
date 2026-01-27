@@ -65,6 +65,7 @@ func RunTUI() error {
 	opts := []tui.AppOption{
 		tui.WithContext(ctx),
 		tui.WithStorage(storage),
+		tui.WithVersion(Version),
 	}
 
 	// Check authentication status

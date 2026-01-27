@@ -82,6 +82,9 @@ type App struct {
 	// State
 	err      error
 	quitting bool
+
+	// Version info
+	version string
 }
 
 // AppOption configures the App
@@ -114,6 +117,13 @@ func WithGitHubClient(client github.Client) AppOption {
 func WithStorage(storage *state.Storage) AppOption {
 	return func(a *App) {
 		a.storage = storage
+	}
+}
+
+// WithVersion sets the app version for display
+func WithVersion(version string) AppOption {
+	return func(a *App) {
+		a.version = version
 	}
 }
 
@@ -492,7 +502,7 @@ func (a *App) renderHeader() string {
 	return a.styles.Header.Width(a.width - 4).Render(headerContent)
 }
 
-// renderFooter renders the app footer with help
+// renderFooter renders the app footer with help and version
 func (a *App) renderFooter() string {
 	var helpItems []string
 
@@ -511,9 +521,26 @@ func (a *App) renderFooter() string {
 	quitHelp := a.styles.HelpKey.Render("q") + " " + a.styles.HelpValue.Render("quit")
 	helpItems = append(helpItems, quitHelp)
 
-	helpText := lipgloss.JoinHorizontal(lipgloss.Center, joinWithSeparator(helpItems, "  "))
+	helpText := joinWithSeparator(helpItems, "  ")
 
-	return a.styles.Footer.Width(a.width - 4).Render(helpText)
+	// Version on the right
+	versionText := ""
+	if a.version != "" {
+		versionText = a.styles.Muted.Render("v" + a.version)
+	}
+
+	// Calculate gap between help and version
+	footerWidth := a.width - 4
+	helpWidth := lipgloss.Width(helpText)
+	versionWidth := lipgloss.Width(versionText)
+	gap := footerWidth - helpWidth - versionWidth - 2
+	if gap < 1 {
+		gap = 1
+	}
+
+	footerContent := helpText + lipgloss.NewStyle().Width(gap).Render("") + versionText
+
+	return a.styles.Footer.Width(footerWidth).Render(footerContent)
 }
 
 // joinWithSeparator joins strings with a separator
