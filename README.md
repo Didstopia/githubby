@@ -279,6 +279,10 @@ go test -v ./...
 go test -v ./internal/github/...
 ```
 
+### CI/CD Notes
+
+- **Dependabot PRs**: If CI fails on a Dependabot PR after you've fixed CI in master, the PR is based on an older commit and doesn't have your fixes. Comment `@dependabot rebase` on the PR to rebase it onto the latest master.
+
 ---
 
 ## Contributing
