@@ -461,16 +461,24 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 		return err
 	}
 
-	// Handle LFS if needed
+	// Handle LFS if needed (non-fatal - repo still usable without LFS objects)
 	if s.lfs.RepoUsesLFS(localPath) {
 		if s.opts.Verbose {
 			fmt.Printf("Repository uses LFS, pulling LFS objects...\n")
 		}
 		if err := s.lfs.EnsureLFS(ctx); err != nil {
-			return fmt.Errorf("failed to ensure LFS: %w", err)
+			// LFS not available - warn but don't fail the clone
+			if s.opts.Verbose {
+				fmt.Printf("Warning: LFS not available (%v). Large files will be pointer files.\n", err)
+			}
+			// Continue without LFS - repo is still cloned, just without LFS objects
+			return nil
 		}
 		if err := s.lfs.Pull(ctx, localPath); err != nil {
-			return fmt.Errorf("failed to pull LFS objects: %w", err)
+			// LFS pull failed - warn but don't fail
+			if s.opts.Verbose {
+				fmt.Printf("Warning: Failed to pull LFS objects: %v\n", err)
+			}
 		}
 	}
 
@@ -483,16 +491,24 @@ func (s *Syncer) pullRepo(ctx context.Context, localPath, repoName string) error
 		return fmt.Errorf("pull failed: %w", err)
 	}
 
-	// Handle LFS if needed
+	// Handle LFS if needed (non-fatal - repo still usable without LFS objects)
 	if s.lfs.RepoUsesLFS(localPath) {
 		if s.opts.Verbose {
 			fmt.Printf("Repository uses LFS, pulling LFS objects...\n")
 		}
 		if err := s.lfs.EnsureLFS(ctx); err != nil {
-			return fmt.Errorf("failed to ensure LFS: %w", err)
+			// LFS not available - warn but don't fail the pull
+			if s.opts.Verbose {
+				fmt.Printf("Warning: LFS not available (%v). Large files will be pointer files.\n", err)
+			}
+			// Continue without LFS
+			return nil
 		}
 		if err := s.lfs.Pull(ctx, localPath); err != nil {
-			return fmt.Errorf("failed to pull LFS objects: %w", err)
+			// LFS pull failed - warn but don't fail
+			if s.opts.Verbose {
+				fmt.Printf("Warning: Failed to pull LFS objects: %v\n", err)
+			}
 		}
 	}
 
