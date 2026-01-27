@@ -17,6 +17,29 @@ var (
 	ErrUnauthorized      = errors.New("unauthorized: invalid or expired token")
 )
 
+// AuthError represents an authentication error with helpful guidance
+type AuthError struct {
+	Message string
+}
+
+func (e *AuthError) Error() string {
+	return e.Message
+}
+
+// NewAuthError creates a user-friendly authentication error
+func NewAuthError() *AuthError {
+	return &AuthError{
+		Message: `not authenticated with GitHub
+
+To log in interactively:
+  githubby login
+
+Or provide a token:
+  githubby <command> --token <your-token>
+  export GITHUB_TOKEN=<your-token>`,
+	}
+}
+
 // ValidationError represents an input validation error
 type ValidationError struct {
 	Field   string

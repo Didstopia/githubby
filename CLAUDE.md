@@ -33,8 +33,15 @@ githubby/
 ├── main.go                   # Entry point (legacy location, calls internal/cli)
 ├── cmd/githubby/main.go      # Entry point (preferred)
 ├── internal/
+│   ├── auth/                 # Authentication
+│   │   ├── auth.go           # Token resolution (flag > env > keychain > config)
+│   │   ├── device_flow.go    # OAuth device flow implementation
+│   │   └── storage.go        # Secure token storage (keychain + config fallback)
 │   ├── cli/                  # Cobra commands
 │   │   ├── root.go           # Root command, global flags, signal handling
+│   │   ├── login.go          # Login command (OAuth device flow)
+│   │   ├── logout.go         # Logout command
+│   │   ├── auth_status.go    # Auth status command
 │   │   ├── clean.go          # Clean command (release cleanup)
 │   │   ├── sync.go           # Sync command (repository sync)
 │   │   └── version.go        # Version command
@@ -42,7 +49,7 @@ githubby/
 │   │   ├── config.go         # Config struct, load/save
 │   │   └── loader.go         # Viper integration
 │   ├── errors/               # Custom error types
-│   │   └── errors.go         # ValidationError, APIError, common errors
+│   │   └── errors.go         # ValidationError, APIError, AuthError
 │   ├── git/                  # Git operations
 │   │   ├── git.go            # Clone, pull, fetch operations
 │   │   └── lfs.go            # LFS detection, installation, pull
@@ -65,6 +72,7 @@ githubby/
 - **Graceful shutdown**: Signal handling for SIGINT/SIGTERM
 - **Iterative pagination**: No stack overflow risk (replaced recursive calls)
 - **Secure defaults**: Config file permissions 0600, URL path encoding
+- **Cross-platform auth**: Keychain storage (macOS/Linux/Windows) with config fallback
 
 ## Configuration
 
@@ -90,19 +98,25 @@ include: []
 exclude: []
 ```
 
-Priority: CLI flags > environment variables > config file
+Priority: CLI flags > environment variables > stored token (keychain/config)
 
 ## CLI Usage
 
 ```bash
-# Sync repositories
-githubby sync --token <token> --user <username> --target ~/repos
-githubby sync --token <token> --org <orgname> --target ~/repos --include-private
-githubby sync --token <token> --user <username> --target ~/repos --include "prefix-*" --exclude "*-archive"
+# Authentication (recommended for interactive use)
+githubby login                              # OAuth device flow - opens browser
+githubby login --with-token < token.txt     # Use PAT from stdin
+githubby logout                             # Remove stored credentials
+githubby auth status                        # Check authentication status
+
+# Sync repositories (uses stored token, or --token flag)
+githubby sync --user <username> --target ~/repos
+githubby sync --org <orgname> --target ~/repos --include-private
+githubby sync --user <username> --target ~/repos --include "prefix-*" --exclude "*-archive"
 
 # Clean releases
-githubby clean --token <token> --repository owner/repo --filter-days 30
-githubby clean --token <token> --repository owner/repo --filter-count 10 --dry-run
+githubby clean --repository owner/repo --filter-days 30
+githubby clean --repository owner/repo --filter-count 10 --dry-run
 
 # Version
 githubby version
