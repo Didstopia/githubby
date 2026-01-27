@@ -61,6 +61,9 @@ type App struct {
 	username        string
 	token           string
 
+	// Selected profile for quick sync
+	selectedProfile *state.SyncProfile
+
 	// Terminal dimensions
 	width  int
 	height int
@@ -222,6 +225,16 @@ func (a *App) IsAuthenticated() bool {
 	return a.isAuthenticated
 }
 
+// SelectedProfile returns the currently selected profile for quick sync
+func (a *App) SelectedProfile() *state.SyncProfile {
+	return a.selectedProfile
+}
+
+// SetSelectedProfile sets the selected profile for quick sync
+func (a *App) SetSelectedProfile(profile *state.SyncProfile) {
+	a.selectedProfile = profile
+}
+
 // Width returns the terminal width
 func (a *App) Width() int {
 	return a.width
@@ -306,8 +319,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.PushScreen(ScreenSyncWizard)
 
 	case ProfileSelectedMsg:
-		// Quick sync for a profile - push sync progress
-		// The sync progress screen will handle the actual sync
+		// Store the selected profile for the sync progress screen
+		a.selectedProfile = msg.Profile
+		// Clear any cached sync progress screen so we get a fresh one
+		delete(a.screens, ScreenSyncProgress)
+		// Push sync progress screen
 		return a, a.PushScreen(ScreenSyncProgress)
 	}
 

@@ -134,4 +134,9 @@ func registerScreenFactories(app *tui.App) {
 	app.RegisterScreenFactory(tui.ScreenClean, func(ctx context.Context, a *tui.App) tui.ScreenModel {
 		return screens.NewCleanScreen(ctx, a.GitHubClient())
 	})
+
+	// Sync progress screen factory (for profile quick sync)
+	app.RegisterScreenFactory(tui.ScreenSyncProgress, func(ctx context.Context, a *tui.App) tui.ScreenModel {
+		return screens.NewSyncProgress(ctx, a)
+	})
 }
