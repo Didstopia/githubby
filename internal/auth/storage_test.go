@@ -3,6 +3,7 @@ package auth
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -127,10 +128,12 @@ func TestStorage_SetAndGetToken_ConfigFile(t *testing.T) {
 	assert.Equal(t, testToken, token)
 	assert.Equal(t, TokenSourceConfig, source)
 
-	// Verify file permissions
-	info, err := os.Stat(configPath)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	// Verify file permissions (skip on Windows as it doesn't support Unix permissions)
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	}
 }
 
 func TestStorage_DeleteToken_ConfigFile(t *testing.T) {
