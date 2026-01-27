@@ -596,7 +596,7 @@ func (c *CleanScreen) loadReleases() tea.Cmd {
 func (c *CleanScreen) waitForReleases() tea.Cmd {
 	return func() tea.Msg {
 		result := <-c.releasesChan
-		return releasesLoadedMsg{releases: result.releases, err: result.err}
+		return releasesLoadedMsg(result)
 	}
 }
 
@@ -640,7 +640,7 @@ func (c *CleanScreen) deleteNext() tea.Cmd {
 func (c *CleanScreen) waitForDelete() tea.Cmd {
 	return func() tea.Msg {
 		result := <-c.deleteChan
-		return deleteProgressMsg{err: result.err}
+		return deleteProgressMsg(result)
 	}
 }
 

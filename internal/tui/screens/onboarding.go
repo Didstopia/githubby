@@ -696,11 +696,7 @@ func (o *Onboarding) waitForOAuthComplete() tea.Cmd {
 func (o *Onboarding) waitForOAuthResult() tea.Cmd {
 	return func() tea.Msg {
 		result := <-o.oauthCompleteChan
-		return oauthCompleteMsg{
-			token:    result.token,
-			username: result.username,
-			err:      result.err,
-		}
+		return oauthCompleteMsg(result)
 	}
 }
 
@@ -731,10 +727,7 @@ func (o *Onboarding) validateToken() tea.Cmd {
 func (o *Onboarding) waitForTokenValidation() tea.Cmd {
 	return func() tea.Msg {
 		result := <-o.tokenValidateChan
-		return tokenValidateMsg{
-			username: result.username,
-			err:      result.err,
-		}
+		return tokenValidateMsg(result)
 	}
 }
 

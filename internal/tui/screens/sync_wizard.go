@@ -1214,26 +1214,6 @@ type syncDoneMsg struct {
 	update syncDoneUpdate
 }
 
-// statusToString converts a sync status to a string
-func statusToString(status sync.ProgressStatus) string {
-	switch status {
-	case sync.ProgressPending:
-		return "pending"
-	case sync.ProgressInProgress:
-		return "syncing"
-	case sync.ProgressCloned:
-		return "cloned"
-	case sync.ProgressUpdated:
-		return "updated"
-	case sync.ProgressSkipped:
-		return "skipped"
-	case sync.ProgressFailed:
-		return "failed"
-	default:
-		return "unknown"
-	}
-}
-
 // orgsResult represents the result of fetching organizations
 type orgsResult struct {
 	orgs []*gh.Organization
