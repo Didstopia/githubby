@@ -1,7 +1,17 @@
 package sync
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
+
+	gh "github.com/google/go-github/v68/github"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/Didstopia/githubby/internal/git"
+	"github.com/Didstopia/githubby/internal/github"
 )
 
 func TestMatchGlob(t *testing.T) {
@@ -168,5 +178,319 @@ func TestSyncer_shouldSync(t *testing.T) {
 				t.Errorf("shouldSync(%q) = %v, want %v", tt.repoName, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestNew(t *testing.T) {
+	mockClient := github.NewMockClient()
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	opts := &Options{
+		Target:         "/tmp/test",
+		Include:        []string{"include-*"},
+		Exclude:        []string{"*-exclude"},
+		IncludePrivate: true,
+		DryRun:         false,
+		Verbose:        true,
+	}
+
+	syncer := New(mockClient, gitInstance, opts)
+
+	assert.NotNil(t, syncer)
+	assert.Equal(t, mockClient, syncer.ghClient)
+	assert.Equal(t, gitInstance, syncer.git)
+	assert.NotNil(t, syncer.lfs)
+	assert.Equal(t, opts, syncer.opts)
+}
+
+func TestSyncUserRepos(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	t.Run("calls ListUserRepos", func(t *testing.T) {
+		mockClient := github.NewMockClient()
+		mockClient.ListUserReposFunc = func(ctx context.Context, username string, opts *github.ListOptions) ([]*gh.Repository, error) {
+			return []*gh.Repository{}, nil
+		}
+
+		tmpDir := t.TempDir()
+		opts := &Options{Target: tmpDir, DryRun: true}
+		syncer := New(mockClient, gitInstance, opts)
+
+		result, err := syncer.SyncUserRepos(context.Background(), "testuser")
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, 1, mockClient.CallCount("ListUserRepos"))
+	})
+
+	t.Run("handles error from API", func(t *testing.T) {
+		mockClient := github.NewMockClient()
+		mockClient.ListUserReposFunc = func(ctx context.Context, username string, opts *github.ListOptions) ([]*gh.Repository, error) {
+			return nil, assert.AnError
+		}
+
+		tmpDir := t.TempDir()
+		opts := &Options{Target: tmpDir}
+		syncer := New(mockClient, gitInstance, opts)
+
+		_, err := syncer.SyncUserRepos(context.Background(), "testuser")
+
+		assert.Error(t, err)
+	})
+}
+
+func TestSyncOrgRepos(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	t.Run("calls ListOrgRepos", func(t *testing.T) {
+		mockClient := github.NewMockClient()
+		mockClient.ListOrgReposFunc = func(ctx context.Context, org string, opts *github.ListOptions) ([]*gh.Repository, error) {
+			return []*gh.Repository{}, nil
+		}
+
+		tmpDir := t.TempDir()
+		opts := &Options{Target: tmpDir, DryRun: true}
+		syncer := New(mockClient, gitInstance, opts)
+
+		result, err := syncer.SyncOrgRepos(context.Background(), "testorg")
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, 1, mockClient.CallCount("ListOrgRepos"))
+	})
+
+	t.Run("handles error from API", func(t *testing.T) {
+		mockClient := github.NewMockClient()
+		mockClient.ListOrgReposFunc = func(ctx context.Context, org string, opts *github.ListOptions) ([]*gh.Repository, error) {
+			return nil, assert.AnError
+		}
+
+		tmpDir := t.TempDir()
+		opts := &Options{Target: tmpDir}
+		syncer := New(mockClient, gitInstance, opts)
+
+		_, err := syncer.SyncOrgRepos(context.Background(), "testorg")
+
+		assert.Error(t, err)
+	})
+}
+
+func TestSyncRepo(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	t.Run("calls GetRepository", func(t *testing.T) {
+		mockClient := github.NewMockClient()
+		repoName := "test-repo"
+		fullName := "owner/test-repo"
+		owner := &gh.User{Login: strPtr("owner")}
+		mockClient.GetRepositoryFunc = func(ctx context.Context, o, r string) (*gh.Repository, error) {
+			return &gh.Repository{
+				Name:     &repoName,
+				FullName: &fullName,
+				Owner:    owner,
+				Private:  boolPtr(false),
+				CloneURL: strPtr("https://github.com/owner/test-repo.git"),
+			}, nil
+		}
+
+		tmpDir := t.TempDir()
+		opts := &Options{Target: tmpDir, DryRun: true}
+		syncer := New(mockClient, gitInstance, opts)
+
+		result, err := syncer.SyncRepo(context.Background(), "owner", "test-repo")
+
+		require.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, 1, mockClient.CallCount("GetRepository"))
+	})
+}
+
+func TestSyncRepos_DryRun(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	mockClient := github.NewMockClient()
+
+	repoName := "test-repo"
+	fullName := "owner/test-repo"
+	owner := &gh.User{Login: strPtr("owner")}
+	repos := []*gh.Repository{
+		{
+			Name:     &repoName,
+			FullName: &fullName,
+			Owner:    owner,
+			Private:  boolPtr(false),
+			CloneURL: strPtr("https://github.com/owner/test-repo.git"),
+		},
+	}
+
+	mockClient.ListUserReposFunc = func(ctx context.Context, username string, opts *github.ListOptions) ([]*gh.Repository, error) {
+		return repos, nil
+	}
+
+	tmpDir := t.TempDir()
+	opts := &Options{Target: tmpDir, DryRun: true, Verbose: false}
+	syncer := New(mockClient, gitInstance, opts)
+
+	result, err := syncer.SyncUserRepos(context.Background(), "owner")
+
+	require.NoError(t, err)
+	assert.NotNil(t, result)
+	// In dry-run mode, new repos are counted as "would be cloned"
+	assert.Len(t, result.Cloned, 1)
+	assert.Contains(t, result.Cloned, "owner/test-repo")
+
+	// Verify no actual files were created
+	repoPath := filepath.Join(tmpDir, "owner", "test-repo")
+	_, err = os.Stat(repoPath)
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestSyncRepos_Filtered(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	mockClient := github.NewMockClient()
+
+	repos := []*gh.Repository{
+		createMockRepo("include-this", "owner/include-this", false),
+		createMockRepo("exclude-this", "owner/exclude-this", false),
+		createMockRepo("other-repo", "owner/other-repo", false),
+	}
+
+	mockClient.ListUserReposFunc = func(ctx context.Context, username string, opts *github.ListOptions) ([]*gh.Repository, error) {
+		return repos, nil
+	}
+
+	tmpDir := t.TempDir()
+	opts := &Options{
+		Target:  tmpDir,
+		DryRun:  true,
+		Include: []string{"include-*"},
+	}
+	syncer := New(mockClient, gitInstance, opts)
+
+	result, err := syncer.SyncUserRepos(context.Background(), "owner")
+
+	require.NoError(t, err)
+	assert.Len(t, result.Cloned, 1) // Only include-this
+	assert.Len(t, result.Skipped, 2) // exclude-this and other-repo
+}
+
+func TestSyncRepos_ContextCancelled(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	mockClient := github.NewMockClient()
+
+	repos := []*gh.Repository{
+		createMockRepo("repo1", "owner/repo1", false),
+		createMockRepo("repo2", "owner/repo2", false),
+		createMockRepo("repo3", "owner/repo3", false),
+	}
+
+	mockClient.ListUserReposFunc = func(ctx context.Context, username string, opts *github.ListOptions) ([]*gh.Repository, error) {
+		return repos, nil
+	}
+
+	tmpDir := t.TempDir()
+	opts := &Options{Target: tmpDir}
+	syncer := New(mockClient, gitInstance, opts)
+
+	// Create cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := syncer.SyncUserRepos(ctx, "owner")
+
+	assert.ErrorIs(t, err, context.Canceled)
+	// Should have stopped before processing all repos
+	totalProcessed := len(result.Cloned) + len(result.Updated) + len(result.Skipped) + len(result.Failed)
+	assert.Less(t, totalProcessed, 3)
+}
+
+func TestSyncRepos_ExistingRepo(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	mockClient := github.NewMockClient()
+
+	repos := []*gh.Repository{
+		createMockRepo("existing-repo", "owner/existing-repo", false),
+	}
+
+	mockClient.ListUserReposFunc = func(ctx context.Context, username string, opts *github.ListOptions) ([]*gh.Repository, error) {
+		return repos, nil
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create an existing repo directory with .git
+	repoPath := filepath.Join(tmpDir, "owner", "existing-repo")
+	require.NoError(t, os.MkdirAll(repoPath, 0755))
+	gitDir := filepath.Join(repoPath, ".git")
+	require.NoError(t, os.Mkdir(gitDir, 0755))
+
+	opts := &Options{Target: tmpDir, DryRun: true}
+	syncer := New(mockClient, gitInstance, opts)
+
+	result, err := syncer.SyncUserRepos(context.Background(), "owner")
+
+	require.NoError(t, err)
+	// Should be counted as update, not clone
+	assert.Len(t, result.Updated, 1)
+	assert.Empty(t, result.Cloned)
+}
+
+func TestOptions_Defaults(t *testing.T) {
+	opts := &Options{}
+
+	assert.Empty(t, opts.Target)
+	assert.Empty(t, opts.Include)
+	assert.Empty(t, opts.Exclude)
+	assert.False(t, opts.IncludePrivate)
+	assert.False(t, opts.DryRun)
+	assert.False(t, opts.Verbose)
+}
+
+// Helper functions
+
+func strPtr(s string) *string {
+	return &s
+}
+
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+func createMockRepo(name, fullName string, private bool) *gh.Repository {
+	owner := &gh.User{Login: strPtr("owner")}
+	return &gh.Repository{
+		Name:     strPtr(name),
+		FullName: strPtr(fullName),
+		Owner:    owner,
+		Private:  boolPtr(private),
+		CloneURL: strPtr("https://github.com/" + fullName + ".git"),
+		SSHURL:   strPtr("git@github.com:" + fullName + ".git"),
 	}
 }
