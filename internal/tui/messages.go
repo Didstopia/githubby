@@ -102,6 +102,12 @@ type QuickSyncRequestedMsg struct {
 	ProfileID string
 }
 
+// SyncAllProfilesMsg signals user wants to sync all profiles
+type SyncAllProfilesMsg struct{}
+
+// SyncPendingProfilesMsg signals user wants to sync pending profiles
+type SyncPendingProfilesMsg struct{}
+
 // ClearMessageMsg signals a temporary message should be cleared
 type ClearMessageMsg struct{}
 

@@ -114,7 +114,17 @@ func (d *DashboardV2) initList() {
 	delegate.Styles.NormalDesc = d.styles.Muted
 	delegate.SetHeight(3)
 
-	l := list.New(items, delegate, 60, 12)
+	// Use stored dimensions, with sensible defaults
+	listWidth := d.width - 8
+	listHeight := d.height - 16
+	if listWidth < 40 {
+		listWidth = 60
+	}
+	if listHeight < 6 {
+		listHeight = 12
+	}
+
+	l := list.New(items, delegate, listWidth, listHeight)
 	l.Title = ""
 	l.SetShowStatusBar(false)
 	l.SetFilteringEnabled(false)
@@ -297,11 +307,13 @@ func (d *DashboardV2) handleSelection() tea.Cmd {
 			return tui.NewSyncRequestedMsg{}
 		}
 	case ActionSyncAll:
-		d.message = "Sync All Profiles: Coming soon! For now, select individual profiles to sync."
-		return tui.ClearMessageCmd(tui.MessageDisplayDuration * 2)
+		return func() tea.Msg {
+			return tui.SyncAllProfilesMsg{}
+		}
 	case ActionSyncPending:
-		d.message = "Sync Pending: Coming soon! For now, select individual profiles to sync."
-		return tui.ClearMessageCmd(tui.MessageDisplayDuration * 2)
+		return func() tea.Msg {
+			return tui.SyncPendingProfilesMsg{}
+		}
 	case ActionCleanReleases:
 		return tui.PushScreenCmd(tui.ScreenClean)
 	case ActionViewHistory:
