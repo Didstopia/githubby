@@ -9,7 +9,7 @@ GitHubby is a Go CLI utility for interacting with GitHub. Features include:
 - Git LFS support with automatic detection, installation, and configuration
 - Release cleanup with flexible filtering
 
-**Status**: Actively maintained. Go 1.22+, modern dependencies.
+**Status**: Actively maintained. Go 1.23+, modern dependencies.
 
 ## Build Commands
 
@@ -148,7 +148,7 @@ Tests use mock implementations (`internal/github/mock_client.go`) for isolation.
 
 ## CI/CD
 
-- **CI**: `.github/workflows/ci.yml` - tests on Go 1.22/1.23, Linux/macOS/Windows
+- **CI**: `.github/workflows/ci.yml` - tests on Go 1.23/1.24, Linux/macOS/Windows
 - **Release**: `.github/workflows/release.yml` - GoReleaser on GitHub release publish
 - **Security**: `.github/workflows/security.yml` - CodeQL analysis (weekly + on push/PR)
 - **Dependency Review**: `.github/workflows/dependency-review.yml` - PR vulnerability checks

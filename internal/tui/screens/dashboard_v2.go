@@ -61,7 +61,6 @@ type DashboardV2 struct {
 
 	// State
 	message string
-	err     error
 
 	// Exit confirmation state
 	exitPending bool

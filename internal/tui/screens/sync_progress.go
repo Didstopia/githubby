@@ -29,9 +29,8 @@ type SyncProgressScreen struct {
 	profiles []*state.SyncProfile // Multiple profiles (batch sync)
 
 	// Progress tracking
-	items      []syncProgressItem
-	currentIdx int
-	progress   progress.Model
+	items    []syncProgressItem
+	progress progress.Model
 	spinner    spinner.Model
 
 	// Statistics
@@ -58,9 +57,8 @@ type SyncProgressScreen struct {
 }
 
 type syncProgressItem struct {
-	name    string
-	status  string // "pending", "syncing", "cloned", "updated", "skipped", "failed"
-	message string
+	name   string
+	status string // "pending", "syncing", "cloned", "updated", "skipped", "failed"
 }
 
 // NewSyncProgress creates a new sync progress screen

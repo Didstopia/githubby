@@ -20,7 +20,7 @@ func TestNewClient(t *testing.T) {
 	assert.NotNil(t, client, "client should not be nil")
 
 	// Verify it implements the Client interface
-	var _ Client = client
+	var _ Client = client //nolint:staticcheck // Interface compliance check
 }
 
 func TestDefaultListOptions(t *testing.T) {
