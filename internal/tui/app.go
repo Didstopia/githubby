@@ -84,7 +84,9 @@ type App struct {
 	quitting bool
 
 	// Version info
-	version string
+	version   string
+	commit    string
+	buildDate string
 }
 
 // AppOption configures the App
@@ -120,10 +122,12 @@ func WithStorage(storage *state.Storage) AppOption {
 	}
 }
 
-// WithVersion sets the app version for display
-func WithVersion(version string) AppOption {
+// WithVersion sets the app version info for display
+func WithVersion(version, commit, buildDate string) AppOption {
 	return func(a *App) {
 		a.version = version
+		a.commit = commit
+		a.buildDate = buildDate
 	}
 }
 
@@ -523,10 +527,27 @@ func (a *App) renderFooter() string {
 
 	helpText := joinWithSeparator(helpItems, "  ")
 
-	// Version on the right
+	// Version on the right (format: v0.0.1-abc1234 (2026-01-27))
 	versionText := ""
 	if a.version != "" {
-		versionText = a.styles.Muted.Render("v" + a.version)
+		versionStr := "v" + a.version
+		if a.commit != "" && a.commit != "unknown" {
+			// Show first 7 chars of commit hash
+			commitShort := a.commit
+			if len(commitShort) > 7 {
+				commitShort = commitShort[:7]
+			}
+			versionStr += "-" + commitShort
+		}
+		if a.buildDate != "" && a.buildDate != "unknown" {
+			// Extract just the date part (YYYY-MM-DD) from ISO timestamp
+			dateStr := a.buildDate
+			if len(dateStr) >= 10 {
+				dateStr = dateStr[:10]
+			}
+			versionStr += " (" + dateStr + ")"
+		}
+		versionText = a.styles.Muted.Render(versionStr)
 	}
 
 	// Calculate gap between help and version
