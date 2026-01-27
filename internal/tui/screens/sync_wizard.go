@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/progress"
@@ -248,7 +251,7 @@ func (w *SyncWizard) initRepoModeForm() {
 func (w *SyncWizard) initConfirmForm() {
 	// Generate default profile name
 	if w.profileName == "" {
-		w.profileName = fmt.Sprintf("%s %s", strings.Title(w.sourceType), w.sourceName)
+		w.profileName = fmt.Sprintf("%s %s", cases.Title(language.English).String(w.sourceType), w.sourceName)
 	}
 
 	// Default to saving the profile

@@ -1,0 +1,55 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+
+  settings:
+    errcheck:
+      exclude-functions:
+        # Flag/config binding - these rarely fail and are checked at runtime
+        - (*github.com/spf13/pflag.FlagSet).Set
+        - (*github.com/spf13/cobra.Command).MarkFlagRequired
+        - (*github.com/spf13/cobra.Command).MarkPersistentFlagRequired
+        - github.com/spf13/viper.BindPFlag
+        - (*github.com/spf13/viper.Viper).BindPFlag
+        # File operations in defer - error handling not practical
+        - (*os.File).Close
+        # Test cleanup - errors generally acceptable
+        - os.RemoveAll
+        - os.Remove
+        - os.Unsetenv
+        - os.Setenv
+        # Scan functions in non-critical paths
+        - fmt.Sscanf
+        # State storage operations - errors logged internally
+        - (*github.com/Didstopia/githubby/internal/state.Storage).UpdateProfile
+        - (*github.com/Didstopia/githubby/internal/state.Storage).Save
+
+  exclusions:
+    rules:
+      # Test files - allow unchecked errors for mock calls
+      - path: _test\.go
+        linters:
+          - errcheck
+      # Exclude legacy cmd/ directory from strict checks
+      - path: ^cmd/
+        linters:
+          - errcheck
+      # Exclude legacy ghapi/ directory from strict checks
+      - path: ^ghapi/
+        linters:
+          - errcheck
+          - staticcheck
+      # Exclude legacy util/ directory
+      - path: ^util/
+        linters:
+          - staticcheck
