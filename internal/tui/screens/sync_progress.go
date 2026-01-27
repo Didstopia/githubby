@@ -17,15 +17,16 @@ import (
 	"github.com/Didstopia/githubby/internal/tui"
 )
 
-// SyncProgressScreen shows sync operation progress for a profile
+// SyncProgressScreen shows sync operation progress for a profile or multiple profiles
 type SyncProgressScreen struct {
 	ctx    context.Context
 	app    *tui.App
 	styles *tui.Styles
 	keys   tui.KeyMap
 
-	// Profile being synced
-	profile *state.SyncProfile
+	// Profile(s) being synced
+	profile  *state.SyncProfile   // Single profile
+	profiles []*state.SyncProfile // Multiple profiles (batch sync)
 
 	// Progress tracking
 	items      []syncProgressItem
@@ -39,6 +40,7 @@ type SyncProgressScreen struct {
 	skipped   int
 	failed    int
 	startTime time.Time
+	totalRepos int
 
 	// Dimensions
 	width  int
@@ -89,8 +91,14 @@ func NewSyncProgress(ctx context.Context, app *tui.App) *SyncProgressScreen {
 
 // Title returns the screen title
 func (s *SyncProgressScreen) Title() string {
+	if len(s.profiles) > 1 {
+		return fmt.Sprintf("Syncing %d Profiles", len(s.profiles))
+	}
 	if s.profile != nil {
 		return fmt.Sprintf("Syncing %s", s.profile.Name)
+	}
+	if len(s.profiles) == 1 {
+		return fmt.Sprintf("Syncing %s", s.profiles[0].Name)
 	}
 	return "Syncing"
 }
@@ -108,26 +116,41 @@ func (s *SyncProgressScreen) ShortHelp() []key.Binding {
 
 // Init initializes the sync progress screen
 func (s *SyncProgressScreen) Init() tea.Cmd {
-	s.profile = s.app.SelectedProfile()
-	if s.profile == nil {
+	// Check for batch sync first
+	s.profiles = s.app.ProfilesToSync()
+	if len(s.profiles) == 0 {
+		// Fall back to single profile
+		s.profile = s.app.SelectedProfile()
+		if s.profile != nil {
+			s.profiles = []*state.SyncProfile{s.profile}
+		}
+	}
+
+	if len(s.profiles) == 0 {
 		s.err = fmt.Errorf("no profile selected")
 		s.loading = false
 		s.complete = true
 		return nil
 	}
 
+	// For single profile, also set the profile field for compatibility
+	if len(s.profiles) == 1 {
+		s.profile = s.profiles[0]
+	}
+
 	s.startTime = time.Now()
 
-	// Initialize items from profile's selected repos
-	if len(s.profile.SelectedRepos) > 0 {
-		s.items = make([]syncProgressItem, len(s.profile.SelectedRepos))
-		for i, repoName := range s.profile.SelectedRepos {
-			s.items[i] = syncProgressItem{
+	// Initialize items from all profiles' selected repos
+	s.items = []syncProgressItem{}
+	for _, profile := range s.profiles {
+		for _, repoName := range profile.SelectedRepos {
+			s.items = append(s.items, syncProgressItem{
 				name:   repoName,
 				status: "pending",
-			}
+			})
 		}
 	}
+	s.totalRepos = len(s.items)
 
 	s.loading = false
 	s.syncing = true
@@ -207,13 +230,7 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.skipped = msg.skipped
 		s.failed = msg.failed
 		s.err = msg.err
-
-		// Update profile's last sync time
-		if s.app.Storage() != nil && s.profile != nil {
-			s.profile.LastSyncAt = time.Now()
-			s.app.Storage().UpdateProfile(s.profile)
-			s.app.Storage().Save()
-		}
+		// Profile updates are done in startSync
 	}
 
 	return s, tea.Batch(cmds...)
@@ -237,7 +254,9 @@ func (s *SyncProgressScreen) View() string {
 	}
 
 	// Title
-	if s.profile != nil {
+	if len(s.profiles) > 1 {
+		content.WriteString(s.styles.FormTitle.Render(fmt.Sprintf("Syncing %d Profiles", len(s.profiles))))
+	} else if s.profile != nil {
 		content.WriteString(s.styles.FormTitle.Render(fmt.Sprintf("Syncing: %s", s.profile.Name)))
 	} else {
 		content.WriteString(s.styles.FormTitle.Render("Syncing"))
@@ -245,19 +264,25 @@ func (s *SyncProgressScreen) View() string {
 	content.WriteString("\n\n")
 
 	// Progress
-	total := len(s.items)
+	total := s.totalRepos
 	done := s.cloned + s.updated + s.skipped + s.failed
 	if total > 0 {
 		pct := float64(done) / float64(total)
 		content.WriteString(s.progress.ViewAs(pct))
-		content.WriteString(fmt.Sprintf(" %d/%d", done, total))
+		content.WriteString(fmt.Sprintf(" %d/%d repos", done, total))
 		content.WriteString("\n\n")
 	}
 
 	// Current operation
 	if s.syncing {
 		content.WriteString(s.spinner.View())
-		content.WriteString(fmt.Sprintf(" Syncing %d repositories to %s...", total, s.profile.TargetDir))
+		if len(s.profiles) > 1 {
+			content.WriteString(fmt.Sprintf(" Syncing %d repositories across %d profiles...", total, len(s.profiles)))
+		} else if s.profile != nil {
+			content.WriteString(fmt.Sprintf(" Syncing %d repositories to %s...", total, s.profile.TargetDir))
+		} else {
+			content.WriteString(fmt.Sprintf(" Syncing %d repositories...", total))
+		}
 		content.WriteString("\n")
 		content.WriteString(s.styles.Muted.Render("This may take a while for large repositories."))
 		content.WriteString("\n\n")
@@ -319,8 +344,8 @@ func (s *SyncProgressScreen) View() string {
 // startSync starts the sync operation
 func (s *SyncProgressScreen) startSync() tea.Cmd {
 	return func() tea.Msg {
-		if s.profile == nil {
-			return profileSyncCompleteMsg{err: fmt.Errorf("no profile")}
+		if len(s.profiles) == 0 {
+			return profileSyncCompleteMsg{err: fmt.Errorf("no profiles")}
 		}
 
 		client := s.app.GitHubClient()
@@ -334,36 +359,50 @@ func (s *SyncProgressScreen) startSync() tea.Cmd {
 			return profileSyncCompleteMsg{err: fmt.Errorf("git not available: %w", err)}
 		}
 
-		opts := &sync.Options{
-			Target:         s.profile.TargetDir,
-			IncludePrivate: s.profile.IncludePrivate,
-		}
-
-		syncer := sync.New(client, gitOps, opts)
-
 		var cloned, updated, skipped, failed int
 
-		// Sync each repo in the profile
-		for _, repoFullName := range s.profile.SelectedRepos {
-			parts := strings.SplitN(repoFullName, "/", 2)
-			if len(parts) != 2 {
-				failed++
-				continue
-			}
-			owner, repo := parts[0], parts[1]
-
-			result, err := syncer.SyncRepo(s.ctx, owner, repo)
-			if err != nil {
-				failed++
-				continue
+		// Sync each profile
+		for _, profile := range s.profiles {
+			opts := &sync.Options{
+				Target:         profile.TargetDir,
+				IncludePrivate: profile.IncludePrivate,
 			}
 
-			if result != nil {
-				cloned += len(result.Cloned)
-				updated += len(result.Updated)
-				skipped += len(result.Skipped)
-				failed += len(result.Failed)
+			syncer := sync.New(client, gitOps, opts)
+
+			// Sync each repo in this profile
+			for _, repoFullName := range profile.SelectedRepos {
+				parts := strings.SplitN(repoFullName, "/", 2)
+				if len(parts) != 2 {
+					failed++
+					continue
+				}
+				owner, repo := parts[0], parts[1]
+
+				result, err := syncer.SyncRepo(s.ctx, owner, repo)
+				if err != nil {
+					failed++
+					continue
+				}
+
+				if result != nil {
+					cloned += len(result.Cloned)
+					updated += len(result.Updated)
+					skipped += len(result.Skipped)
+					failed += len(result.Failed)
+				}
 			}
+
+			// Update this profile's last sync time
+			if s.app.Storage() != nil {
+				profile.LastSyncAt = time.Now()
+				s.app.Storage().UpdateProfile(profile)
+			}
+		}
+
+		// Save storage once at the end
+		if s.app.Storage() != nil {
+			s.app.Storage().Save()
 		}
 
 		return profileSyncCompleteMsg{

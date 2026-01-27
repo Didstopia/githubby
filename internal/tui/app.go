@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -61,8 +62,9 @@ type App struct {
 	username        string
 	token           string
 
-	// Selected profile for quick sync
-	selectedProfile *state.SyncProfile
+	// Selected profile(s) for sync
+	selectedProfile  *state.SyncProfile
+	profilesToSync   []*state.SyncProfile
 
 	// Terminal dimensions
 	width  int
@@ -235,6 +237,16 @@ func (a *App) SetSelectedProfile(profile *state.SyncProfile) {
 	a.selectedProfile = profile
 }
 
+// ProfilesToSync returns the list of profiles to sync (for batch sync)
+func (a *App) ProfilesToSync() []*state.SyncProfile {
+	return a.profilesToSync
+}
+
+// SetProfilesToSync sets the list of profiles for batch sync
+func (a *App) SetProfilesToSync(profiles []*state.SyncProfile) {
+	a.profilesToSync = profiles
+}
+
 // Width returns the terminal width
 func (a *App) Width() int {
 	return a.width
@@ -321,10 +333,38 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ProfileSelectedMsg:
 		// Store the selected profile for the sync progress screen
 		a.selectedProfile = msg.Profile
+		a.profilesToSync = nil // Clear batch list
 		// Clear any cached sync progress screen so we get a fresh one
 		delete(a.screens, ScreenSyncProgress)
 		// Push sync progress screen
 		return a, a.PushScreen(ScreenSyncProgress)
+
+	case SyncAllProfilesMsg:
+		// Set all profiles for batch sync
+		if a.storage != nil {
+			a.profilesToSync = a.storage.GetProfiles()
+			a.selectedProfile = nil // Clear single profile
+			delete(a.screens, ScreenSyncProgress)
+			return a, a.PushScreen(ScreenSyncProgress)
+		}
+
+	case SyncPendingProfilesMsg:
+		// Set pending profiles (not synced in 24h) for batch sync
+		if a.storage != nil {
+			allProfiles := a.storage.GetProfiles()
+			var pending []*state.SyncProfile
+			for _, p := range allProfiles {
+				if time.Since(p.LastSyncAt) > 24*time.Hour {
+					pending = append(pending, p)
+				}
+			}
+			if len(pending) > 0 {
+				a.profilesToSync = pending
+				a.selectedProfile = nil
+				delete(a.screens, ScreenSyncProgress)
+				return a, a.PushScreen(ScreenSyncProgress)
+			}
+		}
 	}
 
 	// Update current screen
