@@ -196,6 +196,15 @@ func (c *client) GetRateLimit(ctx context.Context) (*gh.RateLimits, error) {
 	return rateLimits, nil
 }
 
+// GetBranchRef returns the SHA of a branch (used for fast sync check)
+func (c *client) GetBranchRef(ctx context.Context, owner, repo, branch string) (string, error) {
+	ref, resp, err := c.ghClient.Git.GetRef(ctx, owner, repo, "refs/heads/"+branch)
+	if err != nil {
+		return "", wrapAPIError(resp, err)
+	}
+	return ref.GetObject().GetSHA(), nil
+}
+
 // wrapAPIError converts a GitHub API response error to our error type
 func wrapAPIError(resp *gh.Response, err error) error {
 	if err == nil {

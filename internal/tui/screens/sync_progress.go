@@ -38,6 +38,7 @@ type SyncProgressScreen struct {
 	// Statistics
 	cloned     int
 	updated    int
+	upToDate   int
 	skipped    int
 	failed     int
 	archived   int
@@ -264,6 +265,9 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "updated":
 			s.updated++
 			s.reposCompleted++
+		case "up-to-date":
+			s.upToDate++
+			s.reposCompleted++
 		case "skipped":
 			s.skipped++
 			s.reposCompleted++
@@ -277,7 +281,7 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update progress bar
 		if s.totalRepos > 0 {
-			done := s.cloned + s.updated + s.skipped + s.failed
+			done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed
 			cmds = append(cmds, s.progress.SetPercent(float64(done)/float64(s.totalRepos)))
 		}
 
@@ -326,7 +330,7 @@ func (s *SyncProgressScreen) View() string {
 
 	// Progress
 	total := s.totalRepos
-	done := s.cloned + s.updated + s.skipped + s.failed
+	done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed
 	if total > 0 {
 		pct := float64(done) / float64(total)
 		content.WriteString(s.progress.ViewAs(pct))
@@ -354,8 +358,8 @@ func (s *SyncProgressScreen) View() string {
 			// Show current repo being synced with running totals
 			content.WriteString(fmt.Sprintf(" [%d/%d] Syncing %s...", done+1, total, s.currentRepo))
 			// Show running totals if any work has been done
-			if s.cloned > 0 || s.updated > 0 {
-				content.WriteString(fmt.Sprintf(" (cloned: %d, updated: %d)", s.cloned, s.updated))
+			if s.cloned > 0 || s.updated > 0 || s.upToDate > 0 {
+				content.WriteString(fmt.Sprintf(" (cloned: %d, updated: %d, up-to-date: %d)", s.cloned, s.updated, s.upToDate))
 			}
 		} else if len(s.profiles) > 1 {
 			if total > 0 {
@@ -402,6 +406,9 @@ func (s *SyncProgressScreen) View() string {
 		if s.updated > 0 {
 			content.WriteString(fmt.Sprintf("  %s Updated: %d\n", s.styles.Success.Render("●"), s.updated))
 		}
+		if s.upToDate > 0 {
+			content.WriteString(fmt.Sprintf("  %s Up-to-date: %d\n", s.styles.Success.Render("●"), s.upToDate))
+		}
 		if s.skipped > 0 {
 			content.WriteString(fmt.Sprintf("  %s Skipped: %d\n", s.styles.Warning.Render("●"), s.skipped))
 		}
@@ -411,7 +418,7 @@ func (s *SyncProgressScreen) View() string {
 		if s.archived > 0 {
 			content.WriteString(fmt.Sprintf("  %s Archived: %d (preserved locally, no longer on remote)\n", s.styles.Info.Render("●"), s.archived))
 		}
-		if s.cloned == 0 && s.updated == 0 && s.skipped == 0 && s.failed == 0 && s.archived == 0 {
+		if s.cloned == 0 && s.updated == 0 && s.upToDate == 0 && s.skipped == 0 && s.failed == 0 && s.archived == 0 {
 			content.WriteString(s.styles.Muted.Render("  No changes - all repositories up to date\n"))
 		}
 
@@ -587,6 +594,8 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 						status = "cloned"
 					} else if len(result.Updated) > 0 {
 						status = "updated"
+					} else if len(result.UpToDate) > 0 {
+						status = "up-to-date"
 					} else if len(result.Archived) > 0 {
 						status = "archived"
 					} else if len(result.Skipped) > 0 {
@@ -622,6 +631,9 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 			cloned++
 		case "updated":
 			updated++
+		case "up-to-date":
+			// up-to-date repos don't need a separate counter in the final msg
+			// they're counted as part of the overall "done" repos
 		case "skipped":
 			skipped++
 		case "failed":
@@ -719,7 +731,7 @@ func humanizeDuration(d time.Duration) string {
 // Message types
 type profileSyncProgressUpdate struct {
 	repoName string
-	status   string // "syncing", "cloned", "updated", "skipped", "failed"
+	status   string // "syncing", "cloned", "updated", "up-to-date", "skipped", "failed"
 	current  int
 	total    int
 }

@@ -27,6 +27,8 @@ const (
 	ProgressCloned
 	// ProgressUpdated indicates the repo was updated
 	ProgressUpdated
+	// ProgressUpToDate indicates the repo is already up-to-date (fast check)
+	ProgressUpToDate
 	// ProgressSkipped indicates the repo was skipped
 	ProgressSkipped
 	// ProgressFailed indicates the repo sync failed
@@ -74,7 +76,10 @@ type Result struct {
 	// Updated repositories (pulled)
 	Updated []string
 
-	// Skipped repositories (already up to date or filtered out)
+	// UpToDate repositories (already current, no pull needed)
+	UpToDate []string
+
+	// Skipped repositories (filtered out)
 	Skipped []string
 
 	// Failed repositories with errors
@@ -89,6 +94,7 @@ func NewResult() *Result {
 	return &Result{
 		Cloned:   make([]string, 0),
 		Updated:  make([]string, 0),
+		UpToDate: make([]string, 0),
 		Skipped:  make([]string, 0),
 		Failed:   make(map[string]error),
 		Archived: make([]string, 0),
@@ -234,6 +240,8 @@ func (s *Syncer) syncReposParallel(ctx context.Context, repos []*gh.Repository, 
 				result.Cloned = append(result.Cloned, res.repoName)
 			case ProgressUpdated:
 				result.Updated = append(result.Updated, res.repoName)
+			case ProgressUpToDate:
+				result.UpToDate = append(result.UpToDate, res.repoName)
 			case ProgressSkipped:
 				result.Skipped = append(result.Skipped, res.repoName)
 			case ProgressFailed:
@@ -294,18 +302,23 @@ func (s *Syncer) syncWorker(ctx context.Context, jobs <-chan *gh.Repository, res
 		// Sync the repository
 		if s.git.IsGitRepo(localPath) {
 			// Pull existing repo
-			if err := s.pullRepo(ctx, localPath, repoName); err != nil {
+			status, err := s.pullRepo(ctx, repo, localPath)
+			if err != nil {
 				s.reportProgress(repoName, ProgressFailed, err.Error())
 				if s.opts.Verbose {
 					fmt.Printf("Failed to update %s: %v\n", repoName, err)
 				}
 				results <- syncResult{repoName: repoName, status: ProgressFailed, err: err}
 			} else {
-				s.reportProgress(repoName, ProgressUpdated, "")
+				s.reportProgress(repoName, status, "")
 				if s.opts.Verbose {
-					fmt.Printf("Updated: %s\n", repoName)
+					if status == ProgressUpToDate {
+						fmt.Printf("Up-to-date: %s\n", repoName)
+					} else {
+						fmt.Printf("Updated: %s\n", repoName)
+					}
 				}
-				results <- syncResult{repoName: repoName, status: ProgressUpdated}
+				results <- syncResult{repoName: repoName, status: status}
 			}
 		} else {
 			// Clone new repo
@@ -365,15 +378,24 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 	// Sync the repository
 	if s.git.IsGitRepo(localPath) {
 		// Pull existing repo
-		if err := s.pullRepo(ctx, localPath, repoName); err != nil {
+		status, err := s.pullRepo(ctx, repo, localPath)
+		if err != nil {
 			result.Failed[repoName] = err
 			s.reportProgress(repoName, ProgressFailed, err.Error())
 			fmt.Printf("Failed to update %s: %v\n", repoName, err)
 		} else {
-			result.Updated = append(result.Updated, repoName)
-			s.reportProgress(repoName, ProgressUpdated, "")
+			if status == ProgressUpToDate {
+				result.UpToDate = append(result.UpToDate, repoName)
+			} else {
+				result.Updated = append(result.Updated, repoName)
+			}
+			s.reportProgress(repoName, status, "")
 			if s.opts.Verbose {
-				fmt.Printf("Updated: %s\n", repoName)
+				if status == ProgressUpToDate {
+					fmt.Printf("Up-to-date: %s\n", repoName)
+				} else {
+					fmt.Printf("Updated: %s\n", repoName)
+				}
 			}
 		}
 	} else {
@@ -485,10 +507,32 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 	return nil
 }
 
-func (s *Syncer) pullRepo(ctx context.Context, localPath, repoName string) error {
+// pullRepo pulls updates for an existing repository.
+// Returns ProgressUpToDate if already current, ProgressUpdated if pulled, or error.
+func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath string) (ProgressStatus, error) {
+	// Fast check: compare local and remote HEAD to skip unnecessary pulls
+	if s.ghClient != nil {
+		localSHA, err := s.git.GetHEAD(ctx, localPath)
+		if err == nil {
+			// Get default branch (usually main or master)
+			defaultBranch := repo.GetDefaultBranch()
+			if defaultBranch == "" {
+				defaultBranch = "main"
+			}
+
+			remoteSHA, err := s.ghClient.GetBranchRef(ctx, repo.GetOwner().GetLogin(), repo.GetName(), defaultBranch)
+			if err == nil && localSHA == remoteSHA {
+				// Already up-to-date, skip the pull
+				return ProgressUpToDate, nil
+			}
+			// On any error, fall through to normal pull
+		}
+		// On any error, fall through to normal pull
+	}
+
 	// Pull changes (includes fetch internally, no need for separate fetch)
 	if err := s.git.Pull(ctx, localPath); err != nil {
-		return fmt.Errorf("pull failed: %w", err)
+		return ProgressFailed, fmt.Errorf("pull failed: %w", err)
 	}
 
 	// Handle LFS if needed (non-fatal - repo still usable without LFS objects)
@@ -502,7 +546,7 @@ func (s *Syncer) pullRepo(ctx context.Context, localPath, repoName string) error
 				fmt.Printf("Warning: LFS not available (%v). Large files will be pointer files.\n", err)
 			}
 			// Continue without LFS
-			return nil
+			return ProgressUpdated, nil
 		}
 		if err := s.lfs.Pull(ctx, localPath); err != nil {
 			// LFS pull failed - warn but don't fail
@@ -512,7 +556,7 @@ func (s *Syncer) pullRepo(ctx context.Context, localPath, repoName string) error
 		}
 	}
 
-	return nil
+	return ProgressUpdated, nil
 }
 
 func (s *Syncer) shouldSync(repoName string) bool {

@@ -161,6 +161,16 @@ func (g *Git) Fetch(ctx context.Context, repoDir string) error {
 	return cmd.Run()
 }
 
+// GetHEAD returns the SHA of HEAD in the repository
+func (g *Git) GetHEAD(ctx context.Context, repoDir string) (string, error) {
+	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "rev-parse", "HEAD")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 // GetDefaultBranch returns the default branch of a repository
 func (g *Git) GetDefaultBranch(ctx context.Context, repoDir string) (string, error) {
 	// Try to get the symbolic ref for HEAD

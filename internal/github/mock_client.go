@@ -29,6 +29,9 @@ type MockClient struct {
 	// GetRateLimitFunc can be set to mock GetRateLimit behavior
 	GetRateLimitFunc func(ctx context.Context) (*gh.RateLimits, error)
 
+	// GetBranchRefFunc can be set to mock GetBranchRef behavior
+	GetBranchRefFunc func(ctx context.Context, owner, repo, branch string) (string, error)
+
 	// Call tracking
 	Calls []MockCall
 }
@@ -107,6 +110,15 @@ func (m *MockClient) GetRateLimit(ctx context.Context) (*gh.RateLimits, error) {
 		return m.GetRateLimitFunc(ctx)
 	}
 	return nil, nil
+}
+
+// GetBranchRef implements Client.GetBranchRef
+func (m *MockClient) GetBranchRef(ctx context.Context, owner, repo, branch string) (string, error) {
+	m.Calls = append(m.Calls, MockCall{Method: "GetBranchRef", Args: []interface{}{owner, repo, branch}})
+	if m.GetBranchRefFunc != nil {
+		return m.GetBranchRefFunc(ctx, owner, repo, branch)
+	}
+	return "mock-sha-12345", nil
 }
 
 // Reset clears all recorded calls

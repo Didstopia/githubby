@@ -29,6 +29,9 @@ type Client interface {
 
 	// GetRateLimit returns the current rate limit status
 	GetRateLimit(ctx context.Context) (*gh.RateLimits, error)
+
+	// GetBranchRef returns the SHA of a branch (used for fast sync check)
+	GetBranchRef(ctx context.Context, owner, repo, branch string) (string, error)
 }
 
 // ListOptions specifies optional parameters for list operations
