@@ -17,6 +17,7 @@ import (
 	"github.com/cli/oauth/device"
 
 	"github.com/Didstopia/githubby/internal/auth"
+	"github.com/Didstopia/githubby/internal/state"
 	"github.com/Didstopia/githubby/internal/tui"
 )
 
@@ -33,9 +34,10 @@ const (
 
 // Onboarding is the first-run onboarding wizard screen
 type Onboarding struct {
-	ctx    context.Context
-	styles *tui.Styles
-	keys   tui.KeyMap
+	ctx     context.Context
+	storage *state.Storage
+	styles  *tui.Styles
+	keys    tui.KeyMap
 
 	// Current step
 	step OnboardingStep
@@ -65,6 +67,11 @@ type Onboarding struct {
 	// User info after auth
 	username string
 	token    string // stored token for AuthCompleteMsg
+
+	// Channels for async operations
+	oauthCodeChan     chan oauthCodeResult
+	oauthCompleteChan chan oauthCompleteResult
+	tokenValidateChan chan tokenValidateResult
 
 	// Completion state
 	launchDashboard bool
@@ -101,6 +108,13 @@ func WithSkipToSyncConfig(username string) OnboardingOption {
 	return func(o *Onboarding) {
 		o.step = StepSyncConfig
 		o.username = username
+	}
+}
+
+// WithStorage sets the storage instance for persisting settings
+func WithStorage(storage *state.Storage) OnboardingOption {
+	return func(o *Onboarding) {
+		o.storage = storage
 	}
 }
 
@@ -583,6 +597,23 @@ type tokenValidateMsg struct {
 	err      error
 }
 
+// Async result types for channel communication
+type oauthCodeResult struct {
+	code *device.CodeResponse
+	err  error
+}
+
+type oauthCompleteResult struct {
+	token    string
+	username string
+	err      error
+}
+
+type tokenValidateResult struct {
+	username string
+	err      error
+}
+
 // Exit confirmation messages
 type exitTimeoutMsg struct{}
 
@@ -594,45 +625,116 @@ func exitTimeoutCmd() tea.Cmd {
 	})
 }
 
-// startOAuthFlow starts the OAuth device flow and returns the device code
+// startOAuthFlow starts the OAuth device flow and returns the device code asynchronously
 func (o *Onboarding) startOAuthFlow() tea.Cmd {
-	return func() tea.Msg {
+	o.oauthCodeChan = make(chan oauthCodeResult, 1)
+
+	// Start OAuth request in background goroutine
+	go func() {
+		defer close(o.oauthCodeChan)
+
 		// Request the device code from GitHub
 		code, err := auth.RequestDeviceCode(o.ctx)
 		if err != nil {
-			return oauthCompleteMsg{err: fmt.Errorf("failed to get device code: %w", err)}
+			o.oauthCodeChan <- oauthCodeResult{err: fmt.Errorf("failed to get device code: %w", err)}
+			return
 		}
-		return oauthCodeMsg{code: code}
+		o.oauthCodeChan <- oauthCodeResult{code: code}
+	}()
+
+	// Return batch with spinner tick to keep UI responsive
+	return tea.Batch(
+		o.oauthSpinner.Tick,
+		o.waitForOAuthCode(),
+	)
+}
+
+// waitForOAuthCode waits for the device code to be fetched
+func (o *Onboarding) waitForOAuthCode() tea.Cmd {
+	return func() tea.Msg {
+		result := <-o.oauthCodeChan
+		if result.err != nil {
+			return oauthCompleteMsg{err: result.err}
+		}
+		return oauthCodeMsg{code: result.code}
 	}
 }
 
-// waitForOAuthComplete waits for the user to complete OAuth in browser
+// waitForOAuthComplete waits for the user to complete OAuth in browser asynchronously
 func (o *Onboarding) waitForOAuthComplete() tea.Cmd {
-	return func() tea.Msg {
+	o.oauthCompleteChan = make(chan oauthCompleteResult, 1)
+
+	// Start polling in background goroutine
+	go func() {
+		defer close(o.oauthCompleteChan)
+
 		// Poll for the token (this blocks until user authorizes or timeout)
 		result, err := auth.PollForToken(o.ctx, o.oauthCode)
 		if err != nil {
-			return oauthCompleteMsg{err: err}
+			o.oauthCompleteChan <- oauthCompleteResult{err: err}
+			return
 		}
 
 		// Validate token and get username
 		user, err := auth.ValidateToken(o.ctx, result.Token, "")
 		if err != nil {
-			return oauthCompleteMsg{err: fmt.Errorf("token validation failed: %w", err)}
+			o.oauthCompleteChan <- oauthCompleteResult{err: fmt.Errorf("token validation failed: %w", err)}
+			return
 		}
 
-		return oauthCompleteMsg{token: result.Token, username: user.Login}
+		o.oauthCompleteChan <- oauthCompleteResult{token: result.Token, username: user.Login}
+	}()
+
+	// Return batch with spinner tick to keep UI responsive
+	return tea.Batch(
+		o.oauthSpinner.Tick,
+		o.waitForOAuthResult(),
+	)
+}
+
+// waitForOAuthResult waits for OAuth completion result
+func (o *Onboarding) waitForOAuthResult() tea.Cmd {
+	return func() tea.Msg {
+		result := <-o.oauthCompleteChan
+		return oauthCompleteMsg{
+			token:    result.token,
+			username: result.username,
+			err:      result.err,
+		}
 	}
 }
 
-// validateToken validates the entered token
+// validateToken validates the entered token asynchronously
 func (o *Onboarding) validateToken() tea.Cmd {
-	return func() tea.Msg {
+	o.tokenValidateChan = make(chan tokenValidateResult, 1)
+
+	// Start validation in background goroutine
+	go func() {
+		defer close(o.tokenValidateChan)
+
 		user, err := auth.ValidateToken(o.ctx, o.tokenInput, "")
 		if err != nil {
-			return tokenValidateMsg{err: err}
+			o.tokenValidateChan <- tokenValidateResult{err: err}
+			return
 		}
-		return tokenValidateMsg{username: user.Login}
+		o.tokenValidateChan <- tokenValidateResult{username: user.Login}
+	}()
+
+	// Return batch with spinner tick to keep UI responsive
+	return tea.Batch(
+		o.oauthSpinner.Tick,
+		o.waitForTokenValidation(),
+	)
+}
+
+// waitForTokenValidation waits for token validation result
+func (o *Onboarding) waitForTokenValidation() tea.Cmd {
+	return func() tea.Msg {
+		result := <-o.tokenValidateChan
+		return tokenValidateMsg{
+			username: result.username,
+			err:      result.err,
+		}
 	}
 }
 
@@ -651,11 +753,11 @@ func (o *Onboarding) setSyncConfigDefaults() {
 	}
 }
 
-// saveSyncConfig saves the sync configuration
+// saveSyncConfig saves the sync configuration to storage
 func (o *Onboarding) saveSyncConfig() {
-	// This would save to the config file
-	// For now, we'll just note that it would be saved
-	// The actual implementation would use the config package
+	if o.storage != nil {
+		_ = o.storage.SetDefaults(o.syncTarget, o.syncUser)
+	}
 }
 
 // OnboardingResult contains the result of the onboarding flow

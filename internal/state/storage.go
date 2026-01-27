@@ -262,3 +262,27 @@ func (s *Storage) SetOnboardingComplete(complete bool) error {
 	s.state.OnboardingComplete = complete
 	return s.saveInternal()
 }
+
+// GetDefaultTargetDir returns the default target directory for syncing
+func (s *Storage) GetDefaultTargetDir() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.DefaultTargetDir
+}
+
+// GetDefaultUsername returns the default GitHub username
+func (s *Storage) GetDefaultUsername() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.DefaultUsername
+}
+
+// SetDefaults sets the default target directory and username
+func (s *Storage) SetDefaults(targetDir, username string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.state.DefaultTargetDir = targetDir
+	s.state.DefaultUsername = username
+	return s.saveInternal()
+}

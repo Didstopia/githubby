@@ -99,6 +99,10 @@ type CleanScreen struct {
 	deleted     int
 	deleteFailed int
 
+	// Channels for async operations
+	releasesChan chan releasesLoadResult
+	deleteChan   chan deleteResult
+
 	// Dimensions
 	width  int
 	height int
@@ -569,11 +573,30 @@ func (c *CleanScreen) applyFilters() {
 	}
 }
 
-// loadReleases loads releases from GitHub
+// loadReleases loads releases from GitHub asynchronously
 func (c *CleanScreen) loadReleases() tea.Cmd {
-	return func() tea.Msg {
+	c.releasesChan = make(chan releasesLoadResult, 1)
+
+	// Start fetch in background goroutine
+	go func() {
+		defer close(c.releasesChan)
+
 		releases, err := c.client.GetReleases(c.ctx, c.owner, c.repo)
-		return releasesLoadedMsg{releases: releases, err: err}
+		c.releasesChan <- releasesLoadResult{releases: releases, err: err}
+	}()
+
+	// Return batch with spinner tick to keep UI responsive
+	return tea.Batch(
+		c.spinner.Tick,
+		c.waitForReleases(),
+	)
+}
+
+// waitForReleases waits for releases to be fetched
+func (c *CleanScreen) waitForReleases() tea.Cmd {
+	return func() tea.Msg {
+		result := <-c.releasesChan
+		return releasesLoadedMsg{releases: result.releases, err: result.err}
 	}
 }
 
@@ -583,22 +606,42 @@ func (c *CleanScreen) startDeletion() tea.Cmd {
 	return c.deleteNext()
 }
 
-// deleteNext deletes the next selected release
+// deleteNext deletes the next selected release asynchronously
 func (c *CleanScreen) deleteNext() tea.Cmd {
 	// Find next selected release
 	idx := 0
 	for _, release := range c.releases {
 		if c.selected[release.GetID()] {
 			if idx == c.deleteIdx {
-				return func() tea.Msg {
-					err := c.client.RemoveRelease(c.ctx, c.owner, c.repo, release)
-					return deleteProgressMsg{err: err}
-				}
+				c.deleteChan = make(chan deleteResult, 1)
+
+				// Start deletion in background goroutine
+				releaseToDelete := release // capture for goroutine
+				go func() {
+					defer close(c.deleteChan)
+
+					err := c.client.RemoveRelease(c.ctx, c.owner, c.repo, releaseToDelete)
+					c.deleteChan <- deleteResult{err: err}
+				}()
+
+				// Return batch with spinner tick to keep UI responsive
+				return tea.Batch(
+					c.spinner.Tick,
+					c.waitForDelete(),
+				)
 			}
 			idx++
 		}
 	}
 	return nil
+}
+
+// waitForDelete waits for deletion result
+func (c *CleanScreen) waitForDelete() tea.Cmd {
+	return func() tea.Msg {
+		result := <-c.deleteChan
+		return deleteProgressMsg{err: result.err}
+	}
 }
 
 // Message types
@@ -608,5 +651,15 @@ type releasesLoadedMsg struct {
 }
 
 type deleteProgressMsg struct {
+	err error
+}
+
+// Async result types for channel communication
+type releasesLoadResult struct {
+	releases []*gh.RepositoryRelease
+	err      error
+}
+
+type deleteResult struct {
 	err error
 }

@@ -11,6 +11,8 @@ import (
 type State struct {
 	Version            int            `yaml:"version"`
 	OnboardingComplete bool           `yaml:"onboarding_complete,omitempty"`
+	DefaultTargetDir   string         `yaml:"default_target_dir,omitempty"`
+	DefaultUsername    string         `yaml:"default_username,omitempty"`
 	Profiles           []*SyncProfile `yaml:"profiles"`
 	SyncHistory        []*SyncRecord  `yaml:"sync_history"`
 	RepoCache          []*CachedRepo  `yaml:"repo_cache,omitempty"`

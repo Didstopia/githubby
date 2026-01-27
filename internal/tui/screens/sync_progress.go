@@ -10,8 +10,10 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	gh "github.com/google/go-github/v68/github"
 
 	"github.com/Didstopia/githubby/internal/git"
+	"github.com/Didstopia/githubby/internal/github"
 	"github.com/Didstopia/githubby/internal/state"
 	"github.com/Didstopia/githubby/internal/sync"
 	"github.com/Didstopia/githubby/internal/tui"
@@ -42,6 +44,10 @@ type SyncProgressScreen struct {
 	startTime  time.Time
 	totalRepos int
 
+	// ETA tracking
+	lastUpdateTime time.Time
+	reposCompleted int
+
 	// Dimensions
 	width  int
 	height int
@@ -55,6 +61,13 @@ type SyncProgressScreen struct {
 	// Exit confirmation
 	exitPending bool
 	exitKey     string
+
+	// Channels for async sync progress
+	syncProgressChan chan profileSyncProgressUpdate
+	syncDoneChan     chan profileSyncCompleteMsg
+
+	// Current repo being synced
+	currentRepo string
 }
 
 type syncProgressItem struct {
@@ -238,16 +251,47 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.progress = progressModel.(progress.Model)
 		cmds = append(cmds, cmd)
 
+	case profileSyncProgressMsg:
+		s.currentRepo = msg.update.repoName
+		s.totalRepos = msg.update.total
+		s.lastUpdateTime = time.Now()
+
+		// Update statistics based on status (only count completed statuses, not "syncing")
+		switch msg.update.status {
+		case "cloned":
+			s.cloned++
+			s.reposCompleted++
+		case "updated":
+			s.updated++
+			s.reposCompleted++
+		case "skipped":
+			s.skipped++
+			s.reposCompleted++
+		case "failed":
+			s.failed++
+			s.reposCompleted++
+		case "archived":
+			s.archived++
+			s.reposCompleted++
+		}
+
+		// Update progress bar
+		if s.totalRepos > 0 {
+			done := s.cloned + s.updated + s.skipped + s.failed
+			cmds = append(cmds, s.progress.SetPercent(float64(done)/float64(s.totalRepos)))
+		}
+
+		// Continue listening for more progress updates
+		cmds = append(cmds, s.waitForSyncProgress())
+
 	case profileSyncCompleteMsg:
 		s.syncing = false
 		s.complete = true
-		s.cloned = msg.cloned
-		s.updated = msg.updated
-		s.skipped = msg.skipped
-		s.failed = msg.failed
-		s.archived = msg.archived
-		s.err = msg.err
-		// Profile updates are done in startSync
+		// Final counts are already tracked incrementally
+		if msg.err != nil {
+			s.err = msg.err
+		}
+		// Profile updates are done in runSyncInBackground
 	}
 
 	return s, tea.Batch(cmds...)
@@ -287,13 +331,33 @@ func (s *SyncProgressScreen) View() string {
 		pct := float64(done) / float64(total)
 		content.WriteString(s.progress.ViewAs(pct))
 		content.WriteString(fmt.Sprintf(" %d/%d repos", done, total))
+
+		// Calculate and show ETA if we have enough data
+		if s.syncing && done > 0 {
+			elapsed := time.Since(s.startTime)
+			avgPerRepo := elapsed / time.Duration(done)
+			remaining := total - done
+			eta := avgPerRepo * time.Duration(remaining)
+
+			// Only show ETA if it's meaningful (> 5 seconds remaining)
+			if eta > 5*time.Second {
+				content.WriteString(fmt.Sprintf(" • ~%s remaining", humanizeDuration(eta)))
+			}
+		}
 		content.WriteString("\n\n")
 	}
 
 	// Current operation
 	if s.syncing {
 		content.WriteString(s.spinner.View())
-		if len(s.profiles) > 1 {
+		if s.currentRepo != "" {
+			// Show current repo being synced with running totals
+			content.WriteString(fmt.Sprintf(" [%d/%d] Syncing %s...", done+1, total, s.currentRepo))
+			// Show running totals if any work has been done
+			if s.cloned > 0 || s.updated > 0 {
+				content.WriteString(fmt.Sprintf(" (cloned: %d, updated: %d)", s.cloned, s.updated))
+			}
+		} else if len(s.profiles) > 1 {
 			if total > 0 {
 				content.WriteString(fmt.Sprintf(" Syncing %d repositories across %d profiles...", total, len(s.profiles)))
 			} else {
@@ -310,8 +374,6 @@ func (s *SyncProgressScreen) View() string {
 		} else {
 			content.WriteString(fmt.Sprintf(" Syncing %d repositories...", total))
 		}
-		content.WriteString("\n")
-		content.WriteString(s.styles.Muted.Render("This may take a while for large repositories."))
 		content.WriteString("\n\n")
 	}
 
@@ -376,108 +438,296 @@ func (s *SyncProgressScreen) View() string {
 	return s.styles.Content.Render(content.String())
 }
 
-// startSync starts the sync operation
+// startSync starts the sync operation in a background goroutine
 func (s *SyncProgressScreen) startSync() tea.Cmd {
-	return func() tea.Msg {
-		if len(s.profiles) == 0 {
-			return profileSyncCompleteMsg{err: fmt.Errorf("no profiles")}
-		}
+	// Initialize channels
+	s.syncProgressChan = make(chan profileSyncProgressUpdate, 1)
+	s.syncDoneChan = make(chan profileSyncCompleteMsg, 1)
 
-		client := s.app.GitHubClient()
-		if client == nil {
-			return profileSyncCompleteMsg{err: fmt.Errorf("not authenticated")}
-		}
+	// Start sync in background goroutine
+	go s.runSyncInBackground()
 
-		// Use quiet git mode
-		gitOps, err := git.NewQuiet()
-		if err != nil {
-			return profileSyncCompleteMsg{err: fmt.Errorf("git not available: %w", err)}
-		}
+	// Return command to listen for first progress update
+	return tea.Batch(
+		s.spinner.Tick,
+		s.waitForSyncProgress(),
+	)
+}
 
-		var cloned, updated, skipped, failed, archived int
+// runSyncInBackground performs the actual sync operation
+func (s *SyncProgressScreen) runSyncInBackground() {
+	defer close(s.syncProgressChan)
+	defer close(s.syncDoneChan)
 
-		// Sync each profile
-		for _, profile := range s.profiles {
-			opts := &sync.Options{
-				Target:         profile.TargetDir,
+	if len(s.profiles) == 0 {
+		s.syncDoneChan <- profileSyncCompleteMsg{err: fmt.Errorf("no profiles")}
+		return
+	}
+
+	client := s.app.GitHubClient()
+	if client == nil {
+		s.syncDoneChan <- profileSyncCompleteMsg{err: fmt.Errorf("not authenticated")}
+		return
+	}
+
+	// Use quiet git mode with authentication token
+	gitOps, err := git.NewQuietWithToken(s.app.Token())
+	if err != nil {
+		s.syncDoneChan <- profileSyncCompleteMsg{err: fmt.Errorf("git not available: %w", err)}
+		return
+	}
+
+	var cloned, updated, skipped, failed, archived int
+
+	// First, collect all repos to sync to get accurate total
+	type repoToSync struct {
+		owner   string
+		repo    string
+		profile *state.SyncProfile
+	}
+	var allRepos []repoToSync
+
+	for _, profile := range s.profiles {
+		// Check if this is an "all repos" profile
+		if profile.SyncAllRepos || len(profile.SelectedRepos) == 0 {
+			// Fetch repos from API first
+			listOpts := &github.ListOptions{
 				IncludePrivate: profile.IncludePrivate,
-				Include:        profile.IncludeFilter,
-				Exclude:        profile.ExcludeFilter,
 			}
 
-			syncer := sync.New(client, gitOps, opts)
+			var repos []*gh.Repository
+			var err error
 
-			// Check if this is an "all repos" profile
-			// SyncAllRepos=true or empty SelectedRepos (for backwards compatibility)
-			if profile.SyncAllRepos || len(profile.SelectedRepos) == 0 {
-				// Use API to fetch all current repos
-				var result *sync.Result
-				var syncErr error
-
-				if profile.Type == "org" {
-					result, syncErr = syncer.SyncOrgRepos(s.ctx, profile.Source)
-				} else {
-					result, syncErr = syncer.SyncUserRepos(s.ctx, profile.Source)
-				}
-
-				if syncErr != nil {
-					failed++
-				} else if result != nil {
-					cloned += len(result.Cloned)
-					updated += len(result.Updated)
-					skipped += len(result.Skipped)
-					failed += len(result.Failed)
-					archived += len(result.Archived)
-				}
+			if profile.Type == "org" {
+				repos, err = client.ListOrgRepos(s.ctx, profile.Source, listOpts)
 			} else {
-				// Sync specific repos from profile.SelectedRepos
-				for _, repoFullName := range profile.SelectedRepos {
-					parts := strings.SplitN(repoFullName, "/", 2)
-					if len(parts) != 2 {
-						failed++
-						continue
-					}
-					owner, repo := parts[0], parts[1]
+				repos, err = client.ListUserRepos(s.ctx, profile.Source, listOpts)
+			}
 
-					result, err := syncer.SyncRepo(s.ctx, owner, repo)
-					if err != nil {
-						failed++
-						continue
-					}
-
-					if result != nil {
-						cloned += len(result.Cloned)
-						updated += len(result.Updated)
-						skipped += len(result.Skipped)
-						failed += len(result.Failed)
-						archived += len(result.Archived)
-					}
+			if err != nil {
+				// Send error as a failed repo
+				s.syncProgressChan <- profileSyncProgressUpdate{
+					repoName: fmt.Sprintf("%s/%s", profile.Type, profile.Source),
+					status:   "failed",
+					current:  len(allRepos),
+					total:    0,
+				}
+				failed++
+				continue
+			}
+			for _, r := range repos {
+				allRepos = append(allRepos, repoToSync{
+					owner:   r.GetOwner().GetLogin(),
+					repo:    r.GetName(),
+					profile: profile,
+				})
+			}
+		} else {
+			// Use specific repos from profile
+			for _, repoFullName := range profile.SelectedRepos {
+				parts := strings.SplitN(repoFullName, "/", 2)
+				if len(parts) == 2 {
+					allRepos = append(allRepos, repoToSync{
+						owner:   parts[0],
+						repo:    parts[1],
+						profile: profile,
+					})
 				}
 			}
+		}
+	}
 
-			// Update this profile's last sync time
-			if s.app.Storage() != nil {
-				profile.LastSyncAt = time.Now()
-				s.app.Storage().UpdateProfile(profile)
+	total := len(allRepos)
+
+	// Parallel sync with worker pool (4 concurrent workers)
+	const numWorkers = 4
+
+	// Create job and result channels
+	jobs := make(chan int, len(allRepos))
+	results := make(chan struct {
+		status string
+		idx    int
+	}, len(allRepos))
+
+	// Track completed count for progress
+	var completedCount int32
+
+	// Start workers
+	for w := 0; w < numWorkers; w++ {
+		go func() {
+			for idx := range jobs {
+				r := allRepos[idx]
+				repoName := fmt.Sprintf("%s/%s", r.owner, r.repo)
+
+				// Send progress update before starting this repo
+				s.syncProgressChan <- profileSyncProgressUpdate{
+					repoName: repoName,
+					status:   "syncing",
+					current:  int(completedCount) + 1,
+					total:    total,
+				}
+
+				opts := &sync.Options{
+					Target:         r.profile.TargetDir,
+					IncludePrivate: r.profile.IncludePrivate,
+					Include:        r.profile.IncludeFilter,
+					Exclude:        r.profile.ExcludeFilter,
+				}
+
+				syncer := sync.New(client, gitOps, opts)
+				result, err := syncer.SyncRepo(s.ctx, r.owner, r.repo)
+
+				status := "skipped"
+				if err != nil {
+					status = "failed"
+				} else if result != nil {
+					if len(result.Failed) > 0 {
+						status = "failed"
+					} else if len(result.Cloned) > 0 {
+						status = "cloned"
+					} else if len(result.Updated) > 0 {
+						status = "updated"
+					} else if len(result.Archived) > 0 {
+						status = "archived"
+					} else if len(result.Skipped) > 0 {
+						status = "skipped"
+					} else {
+						status = "skipped"
+					}
+				}
+
+				results <- struct {
+					status string
+					idx    int
+				}{status: status, idx: idx}
 			}
+		}()
+	}
+
+	// Send all jobs
+	for i := range allRepos {
+		jobs <- i
+	}
+	close(jobs)
+
+	// Collect results
+	for i := 0; i < len(allRepos); i++ {
+		res := <-results
+		completedCount++
+		r := allRepos[res.idx]
+		repoName := fmt.Sprintf("%s/%s", r.owner, r.repo)
+
+		switch res.status {
+		case "cloned":
+			cloned++
+		case "updated":
+			updated++
+		case "skipped":
+			skipped++
+		case "failed":
+			failed++
+		case "archived":
+			archived++
 		}
 
-		// Save storage once at the end
+		// Send completion update
+		s.syncProgressChan <- profileSyncProgressUpdate{
+			repoName: repoName,
+			status:   res.status,
+			current:  int(completedCount),
+			total:    total,
+		}
+	}
+
+	// Update profile last sync times
+	for _, profile := range s.profiles {
 		if s.app.Storage() != nil {
-			s.app.Storage().Save()
+			profile.LastSyncAt = time.Now()
+			s.app.Storage().UpdateProfile(profile)
 		}
+	}
 
-		return profileSyncCompleteMsg{
-			cloned:   cloned,
-			updated:  updated,
-			skipped:  skipped,
-			failed:   failed,
-			archived: archived,
+	// Save storage once at the end
+	if s.app.Storage() != nil {
+		s.app.Storage().Save()
+	}
+
+	s.syncDoneChan <- profileSyncCompleteMsg{
+		cloned:   cloned,
+		updated:  updated,
+		skipped:  skipped,
+		failed:   failed,
+		archived: archived,
+	}
+}
+
+// waitForSyncProgress returns a command that waits for the next progress update
+func (s *SyncProgressScreen) waitForSyncProgress() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case update, ok := <-s.syncProgressChan:
+			if !ok {
+				// Channel closed, check done channel
+				if done, ok := <-s.syncDoneChan; ok {
+					return done
+				}
+				return profileSyncCompleteMsg{}
+			}
+			return profileSyncProgressMsg{update: update}
+		case done, ok := <-s.syncDoneChan:
+			if ok {
+				return done
+			}
+			return profileSyncCompleteMsg{}
 		}
 	}
 }
 
+// humanizeDuration converts a duration to a human-friendly string
+func humanizeDuration(d time.Duration) string {
+	if d < time.Second {
+		return "less than a second"
+	}
+	if d < time.Minute {
+		secs := int(d.Seconds())
+		if secs == 1 {
+			return "1 second"
+		}
+		return fmt.Sprintf("%d seconds", secs)
+	}
+	if d < time.Hour {
+		mins := int(d.Minutes())
+		if mins == 1 {
+			return "1 minute"
+		}
+		return fmt.Sprintf("%d minutes", mins)
+	}
+	hours := int(d.Hours())
+	mins := int(d.Minutes()) % 60
+	if hours == 1 {
+		if mins == 0 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("1 hour %d min", mins)
+	}
+	if mins == 0 {
+		return fmt.Sprintf("%d hours", hours)
+	}
+	return fmt.Sprintf("%d hours %d min", hours, mins)
+}
+
 // Message types
+type profileSyncProgressUpdate struct {
+	repoName string
+	status   string // "syncing", "cloned", "updated", "skipped", "failed"
+	current  int
+	total    int
+}
+
+type profileSyncProgressMsg struct {
+	update profileSyncProgressUpdate
+}
+
 type profileSyncCompleteMsg struct {
 	cloned   int
 	updated  int

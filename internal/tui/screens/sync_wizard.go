@@ -131,6 +131,14 @@ type SyncWizard struct {
 	syncResult    *sync.Result
 	syncError     error
 
+	// Channel for async sync progress
+	syncProgressChan chan syncProgressUpdate
+	syncDoneChan     chan syncDoneUpdate
+
+	// Channels for async loading operations
+	orgsChan  chan orgsResult
+	reposChan chan reposResult
+
 	// Dimensions
 	width  int
 	height int
@@ -159,9 +167,16 @@ func NewSyncWizard(ctx context.Context, app *tui.App) *SyncWizard {
 	ti.Placeholder = "~/repos"
 	ti.Width = 50
 
-	// Set default target to home/repos
-	homeDir, _ := os.UserHomeDir()
-	ti.SetValue(filepath.Join(homeDir, "repos"))
+	// Set default target from storage or fall back to home/repos
+	defaultTarget := ""
+	if app.Storage() != nil {
+		defaultTarget = app.Storage().GetDefaultTargetDir()
+	}
+	if defaultTarget == "" {
+		homeDir, _ := os.UserHomeDir()
+		defaultTarget = filepath.Join(homeDir, "repos")
+	}
+	ti.SetValue(defaultTarget)
 
 	w := &SyncWizard{
 		ctx:          ctx,
@@ -520,32 +535,23 @@ func (w *SyncWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		w.initRepoModeForm()
 		return w, w.repoModeForm.Init()
 
-	case tui.SyncProgressMsg:
-		w.syncCurrent = msg.Current
-		w.syncTotal = msg.Total
-		w.syncStatus = fmt.Sprintf("%s: %s", msg.RepoName, statusToString(msg.Status))
+	case syncProgressMsg:
+		w.syncCurrent = msg.update.current
+		w.syncTotal = msg.update.total
+		w.syncStatus = fmt.Sprintf("[%d/%d] %s: %s", msg.update.current, msg.update.total, msg.update.repoName, msg.update.status)
 
 		// Update progress bar
-		if msg.Total > 0 {
-			cmds = append(cmds, w.syncProgress.SetPercent(float64(msg.Current)/float64(msg.Total)))
+		if msg.update.total > 0 {
+			cmds = append(cmds, w.syncProgress.SetPercent(float64(msg.update.current)/float64(msg.update.total)))
 		}
 
-		// Add to results
-		result := &state.RepoSyncResult{
-			FullName: msg.RepoName,
-			Status:   statusToString(msg.Status),
-			SyncedAt: time.Now(),
-			Error:    msg.Message,
-		}
-		if msg.Status == sync.ProgressFailed {
-			result.Error = msg.Message
-		}
-		w.syncResults = append(w.syncResults, result)
+		// Continue listening for more progress updates
+		cmds = append(cmds, w.waitForSyncProgress())
 
-	case tui.SyncCompleteMsg:
-		w.syncResult = msg.Result
-		w.syncRecord = msg.Record
-		w.syncError = msg.Error
+	case syncDoneMsg:
+		w.syncResult = msg.update.result
+		w.syncRecord = msg.update.record
+		w.syncError = msg.update.err
 		w.step = WizardStepComplete
 
 		// Copy results from record for display
@@ -721,29 +727,54 @@ func (w *SyncWizard) initCurrentStep() tea.Cmd {
 	return nil
 }
 
-// fetchOrgs fetches the user's organizations from GitHub
+// fetchOrgs fetches the user's organizations from GitHub asynchronously
 func (w *SyncWizard) fetchOrgs() tea.Cmd {
-	return func() tea.Msg {
+	w.orgsChan = make(chan orgsResult, 1)
+
+	// Start fetch in background goroutine
+	go func() {
+		defer close(w.orgsChan)
+
 		client := w.app.GitHubClient()
 		if client == nil {
-			return tui.OrgsLoadedMsg{Error: fmt.Errorf("not authenticated")}
+			w.orgsChan <- orgsResult{err: fmt.Errorf("not authenticated")}
+			return
 		}
 
 		orgs, err := client.ListUserOrgs(w.ctx)
-		if err != nil {
-			return tui.OrgsLoadedMsg{Error: err}
-		}
+		w.orgsChan <- orgsResult{orgs: orgs, err: err}
+	}()
 
-		return tui.OrgsLoadedMsg{Orgs: orgs}
+	// Return batch with spinner tick to keep UI responsive
+	return tea.Batch(
+		w.syncSpinner.Tick,
+		w.waitForOrgs(),
+	)
+}
+
+// waitForOrgs waits for organizations to be fetched
+func (w *SyncWizard) waitForOrgs() tea.Cmd {
+	return func() tea.Msg {
+		result := <-w.orgsChan
+		if result.err != nil {
+			return tui.OrgsLoadedMsg{Error: result.err}
+		}
+		return tui.OrgsLoadedMsg{Orgs: result.orgs}
 	}
 }
 
-// fetchRepos fetches repositories from GitHub
+// fetchRepos fetches repositories from GitHub asynchronously
 func (w *SyncWizard) fetchRepos() tea.Cmd {
-	return func() tea.Msg {
+	w.reposChan = make(chan reposResult, 1)
+
+	// Start fetch in background goroutine
+	go func() {
+		defer close(w.reposChan)
+
 		client := w.app.GitHubClient()
 		if client == nil {
-			return tui.ReposLoadedMsg{Error: fmt.Errorf("not authenticated")}
+			w.reposChan <- reposResult{err: fmt.Errorf("not authenticated")}
+			return
 		}
 
 		opts := &github.ListOptions{
@@ -759,85 +790,166 @@ func (w *SyncWizard) fetchRepos() tea.Cmd {
 			repos, err = client.ListUserRepos(w.ctx, w.sourceName, opts)
 		}
 
-		if err != nil {
-			return tui.ReposLoadedMsg{Error: err}
-		}
+		w.reposChan <- reposResult{repos: repos, err: err}
+	}()
 
-		return tui.ReposLoadedMsg{Repos: repos}
+	// Return batch with spinner tick to keep UI responsive
+	return tea.Batch(
+		w.syncSpinner.Tick,
+		w.waitForRepos(),
+	)
+}
+
+// waitForRepos waits for repositories to be fetched
+func (w *SyncWizard) waitForRepos() tea.Cmd {
+	return func() tea.Msg {
+		result := <-w.reposChan
+		if result.err != nil {
+			return tui.ReposLoadedMsg{Error: result.err}
+		}
+		return tui.ReposLoadedMsg{Repos: result.repos}
 	}
 }
 
-// startSync starts the sync operation
+// startSync starts the sync operation in a background goroutine
 func (w *SyncWizard) startSync() tea.Cmd {
-	return func() tea.Msg {
-		client := w.app.GitHubClient()
-		if client == nil {
-			return tui.SyncCompleteMsg{Error: fmt.Errorf("not authenticated")}
+	// Initialize channels
+	w.syncProgressChan = make(chan syncProgressUpdate, 1)
+	w.syncDoneChan = make(chan syncDoneUpdate, 1)
+
+	// Start sync in background goroutine
+	go w.runSyncInBackground()
+
+	// Return command to listen for first progress update
+	return tea.Batch(
+		w.syncSpinner.Tick,
+		w.waitForSyncProgress(),
+	)
+}
+
+// runSyncInBackground performs the actual sync operation
+func (w *SyncWizard) runSyncInBackground() {
+	defer close(w.syncProgressChan)
+	defer close(w.syncDoneChan)
+
+	client := w.app.GitHubClient()
+	if client == nil {
+		w.syncDoneChan <- syncDoneUpdate{err: fmt.Errorf("not authenticated")}
+		return
+	}
+
+	// Create sync record
+	record := state.NewSyncRecord("", w.profileName)
+
+	// Use quiet git mode with authentication token
+	gitOps, err := git.NewQuietWithToken(w.app.Token())
+	if err != nil {
+		w.syncDoneChan <- syncDoneUpdate{err: fmt.Errorf("git not available: %w", err)}
+		return
+	}
+
+	opts := &sync.Options{
+		Target:         w.targetDir,
+		IncludePrivate: w.includePrivate,
+	}
+
+	syncer := sync.New(client, gitOps, opts)
+	total := len(w.selectedRepos)
+	results := make([]*state.RepoSyncResult, 0, total)
+	finalResult := sync.NewResult()
+
+	for i, repo := range w.selectedRepos {
+		repoName := repo.GetFullName()
+
+		// Send progress update before starting this repo
+		w.syncProgressChan <- syncProgressUpdate{
+			current:  i + 1,
+			total:    total,
+			repoName: repoName,
+			status:   "syncing",
 		}
 
-		// Create sync record
-		record := state.NewSyncRecord("", w.profileName)
+		result, err := syncer.SyncRepo(w.ctx, repo.GetOwner().GetLogin(), repo.GetName())
 
-		// Use quiet git mode to not pollute TUI
-		gitOps, err := git.NewQuiet()
+		repoResult := &state.RepoSyncResult{
+			FullName: repoName,
+			SyncedAt: time.Now(),
+		}
+
+		status := "skipped"
+		errMsg := ""
+
 		if err != nil {
-			return tui.SyncCompleteMsg{Error: fmt.Errorf("git not available: %w", err)}
-		}
-
-		opts := &sync.Options{
-			Target:         w.targetDir,
-			IncludePrivate: w.includePrivate,
-		}
-
-		syncer := sync.New(client, gitOps, opts)
-		total := len(w.selectedRepos)
-		results := make([]*state.RepoSyncResult, 0, total)
-		finalResult := sync.NewResult()
-
-		for i, repo := range w.selectedRepos {
-			repoName := repo.GetFullName()
-			result, err := syncer.SyncRepo(w.ctx, repo.GetOwner().GetLogin(), repo.GetName())
-
-			repoResult := &state.RepoSyncResult{
-				FullName: repoName,
-				SyncedAt: time.Now(),
-			}
-
-			if err != nil {
-				repoResult.Status = "failed"
-				repoResult.Error = err.Error()
-				finalResult.Failed[repoName] = err
-			} else if result != nil {
-				if len(result.Failed) > 0 {
-					for name, repoErr := range result.Failed {
-						repoResult.Status = "failed"
-						repoResult.Error = repoErr.Error()
-						finalResult.Failed[name] = repoErr
-					}
-				} else if len(result.Cloned) > 0 {
-					repoResult.Status = "cloned"
-					finalResult.Cloned = append(finalResult.Cloned, result.Cloned...)
-				} else if len(result.Updated) > 0 {
-					repoResult.Status = "updated"
-					finalResult.Updated = append(finalResult.Updated, result.Updated...)
-				} else if len(result.Skipped) > 0 {
-					repoResult.Status = "skipped"
-					finalResult.Skipped = append(finalResult.Skipped, result.Skipped...)
+			repoResult.Status = "failed"
+			repoResult.Error = err.Error()
+			finalResult.Failed[repoName] = err
+			status = "failed"
+			errMsg = err.Error()
+		} else if result != nil {
+			if len(result.Failed) > 0 {
+				for name, repoErr := range result.Failed {
+					repoResult.Status = "failed"
+					repoResult.Error = repoErr.Error()
+					finalResult.Failed[name] = repoErr
+					status = "failed"
+					errMsg = repoErr.Error()
 				}
+			} else if len(result.Cloned) > 0 {
+				repoResult.Status = "cloned"
+				finalResult.Cloned = append(finalResult.Cloned, result.Cloned...)
+				status = "cloned"
+			} else if len(result.Updated) > 0 {
+				repoResult.Status = "updated"
+				finalResult.Updated = append(finalResult.Updated, result.Updated...)
+				status = "updated"
+			} else if len(result.Skipped) > 0 {
+				repoResult.Status = "skipped"
+				finalResult.Skipped = append(finalResult.Skipped, result.Skipped...)
+				status = "skipped"
 			}
-
-			results = append(results, repoResult)
-			_ = i // track progress index if needed
 		}
 
-		// Store results for display
-		record.Results = results
-		record.TotalRepos = total
-		record.Complete()
+		results = append(results, repoResult)
 
-		return tui.SyncCompleteMsg{
-			Result: finalResult,
-			Record: record,
+		// Send completion update for this repo
+		w.syncProgressChan <- syncProgressUpdate{
+			current:  i + 1,
+			total:    total,
+			repoName: repoName,
+			status:   status,
+			err:      errMsg,
+		}
+	}
+
+	// Store results for display
+	record.Results = results
+	record.TotalRepos = total
+	record.Complete()
+
+	w.syncDoneChan <- syncDoneUpdate{
+		result: finalResult,
+		record: record,
+	}
+}
+
+// waitForSyncProgress returns a command that waits for the next progress update
+func (w *SyncWizard) waitForSyncProgress() tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case update, ok := <-w.syncProgressChan:
+			if !ok {
+				// Channel closed, check done channel
+				if done, ok := <-w.syncDoneChan; ok {
+					return syncDoneMsg{update: done}
+				}
+				return nil
+			}
+			return syncProgressMsg{update: update}
+		case done, ok := <-w.syncDoneChan:
+			if ok {
+				return syncDoneMsg{update: done}
+			}
+			return nil
 		}
 	}
 }
@@ -989,11 +1101,30 @@ func (w *SyncWizard) viewExecute() string {
 	title := w.styles.FormTitle.Render("Syncing...")
 
 	var content strings.Builder
+
+	// Progress bar
+	if w.syncTotal > 0 {
+		content.WriteString(w.syncProgress.View())
+		content.WriteString("\n\n")
+	}
+
+	// Current status with spinner
 	content.WriteString(w.syncSpinner.View())
-	content.WriteString(" Syncing ")
-	content.WriteString(fmt.Sprintf("%d repositories to %s...", len(w.selectedRepos), w.targetDir))
+	if w.syncStatus != "" {
+		content.WriteString(" ")
+		content.WriteString(w.syncStatus)
+	} else {
+		content.WriteString(" Starting sync...")
+	}
 	content.WriteString("\n\n")
-	content.WriteString(w.styles.Muted.Render("This may take a while for large repositories."))
+
+	// Overall progress
+	if w.syncTotal > 0 {
+		content.WriteString(w.styles.Info.Render(fmt.Sprintf("Progress: %d / %d repositories", w.syncCurrent, w.syncTotal)))
+		content.WriteString("\n")
+	}
+
+	content.WriteString(w.styles.Muted.Render(fmt.Sprintf("Target: %s", w.targetDir)))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", content.String())
 }
@@ -1057,6 +1188,32 @@ func (w *SyncWizard) viewComplete() string {
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", content.String())
 }
 
+// syncProgressUpdate represents a progress update from the sync goroutine
+type syncProgressUpdate struct {
+	current  int
+	total    int
+	repoName string
+	status   string
+	err      string
+}
+
+// syncDoneUpdate represents completion of the sync operation
+type syncDoneUpdate struct {
+	result *sync.Result
+	record *state.SyncRecord
+	err    error
+}
+
+// syncProgressMsg is sent when we receive a progress update
+type syncProgressMsg struct {
+	update syncProgressUpdate
+}
+
+// syncDoneMsg is sent when sync is complete
+type syncDoneMsg struct {
+	update syncDoneUpdate
+}
+
 // statusToString converts a sync status to a string
 func statusToString(status sync.ProgressStatus) string {
 	switch status {
@@ -1075,4 +1232,16 @@ func statusToString(status sync.ProgressStatus) string {
 	default:
 		return "unknown"
 	}
+}
+
+// orgsResult represents the result of fetching organizations
+type orgsResult struct {
+	orgs []*gh.Organization
+	err  error
+}
+
+// reposResult represents the result of fetching repositories
+type reposResult struct {
+	repos []*gh.Repository
+	err   error
 }

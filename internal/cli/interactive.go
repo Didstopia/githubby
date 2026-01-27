@@ -111,11 +111,11 @@ func RunTUI() error {
 		app.RegisterScreen(tui.ScreenDashboard, screens.NewDashboardV2(ctx, app))
 	} else if isAuthenticated && !hasProfiles {
 		// Auth done but no profiles - resume onboarding from sync config
-		onboarding := screens.NewOnboarding(ctx, screens.WithEmbeddedMode(), screens.WithSkipToSyncConfig(username))
+		onboarding := screens.NewOnboarding(ctx, screens.WithEmbeddedMode(), screens.WithStorage(storage), screens.WithSkipToSyncConfig(username))
 		app.RegisterScreen(tui.ScreenOnboarding, onboarding)
 	} else {
 		// Not authenticated - start fresh onboarding
-		app.RegisterScreen(tui.ScreenOnboarding, screens.NewOnboarding(ctx, screens.WithEmbeddedMode()))
+		app.RegisterScreen(tui.ScreenOnboarding, screens.NewOnboarding(ctx, screens.WithEmbeddedMode(), screens.WithStorage(storage)))
 	}
 
 	// Run the app directly (not RunApp which creates a new instance)

@@ -61,6 +61,9 @@ type Options struct {
 
 	// OnProgress is called to report sync progress (optional)
 	OnProgress ProgressCallback
+
+	// Concurrency sets the number of parallel sync operations (default: 1)
+	Concurrency int
 }
 
 // Result represents the result of a sync operation
@@ -148,6 +151,13 @@ func (s *Syncer) SyncRepo(ctx context.Context, owner, repo string) (*Result, err
 	return s.syncRepos(ctx, []*gh.Repository{repository})
 }
 
+// syncResult holds the result of syncing a single repo
+type syncResult struct {
+	repoName string
+	status   ProgressStatus
+	err      error
+}
+
 func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result, error) {
 	result := NewResult()
 
@@ -158,10 +168,91 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 		}
 	}
 
+	// Default concurrency to 1 (sequential), max 8 to avoid rate limits
+	concurrency := s.opts.Concurrency
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+	if concurrency > 8 {
+		concurrency = 8
+	}
+
+	// For sequential processing, use the simple loop
+	if concurrency == 1 {
+		return s.syncReposSequential(ctx, repos, result)
+	}
+
+	// Parallel processing with worker pool
+	return s.syncReposParallel(ctx, repos, result, concurrency)
+}
+
+func (s *Syncer) syncReposSequential(ctx context.Context, repos []*gh.Repository, result *Result) (*Result, error) {
 	for _, repo := range repos {
 		select {
 		case <-ctx.Done():
 			return result, ctx.Err()
+		default:
+		}
+
+		s.syncSingleRepo(ctx, repo, result)
+	}
+
+	// Detect archived repos (exist locally but not on remote)
+	result.Archived = s.detectArchived(repos)
+
+	return result, nil
+}
+
+func (s *Syncer) syncReposParallel(ctx context.Context, repos []*gh.Repository, result *Result, concurrency int) (*Result, error) {
+	// Create channels
+	jobs := make(chan *gh.Repository, len(repos))
+	results := make(chan syncResult, len(repos))
+
+	// Create a child context for cancellation
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Start workers
+	for i := 0; i < concurrency; i++ {
+		go s.syncWorker(ctx, jobs, results)
+	}
+
+	// Send jobs
+	for _, repo := range repos {
+		jobs <- repo
+	}
+	close(jobs)
+
+	// Collect results
+	for i := 0; i < len(repos); i++ {
+		select {
+		case <-ctx.Done():
+			return result, ctx.Err()
+		case res := <-results:
+			switch res.status {
+			case ProgressCloned:
+				result.Cloned = append(result.Cloned, res.repoName)
+			case ProgressUpdated:
+				result.Updated = append(result.Updated, res.repoName)
+			case ProgressSkipped:
+				result.Skipped = append(result.Skipped, res.repoName)
+			case ProgressFailed:
+				result.Failed[res.repoName] = res.err
+			}
+		}
+	}
+
+	// Detect archived repos (exist locally but not on remote)
+	result.Archived = s.detectArchived(repos)
+
+	return result, nil
+}
+
+func (s *Syncer) syncWorker(ctx context.Context, jobs <-chan *gh.Repository, results chan<- syncResult) {
+	for repo := range jobs {
+		select {
+		case <-ctx.Done():
+			return
 		default:
 		}
 
@@ -173,7 +264,7 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 				fmt.Printf("Skipping %s (filtered)\n", repoName)
 			}
 			s.reportProgress(repoName, ProgressSkipped, "filtered")
-			result.Skipped = append(result.Skipped, repoName)
+			results <- syncResult{repoName: repoName, status: ProgressSkipped}
 			continue
 		}
 
@@ -188,11 +279,11 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 			if s.git.IsGitRepo(localPath) {
 				fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
 				s.reportProgress(repoName, ProgressUpdated, "dry-run")
-				result.Updated = append(result.Updated, repoName)
+				results <- syncResult{repoName: repoName, status: ProgressUpdated}
 			} else {
 				fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
 				s.reportProgress(repoName, ProgressCloned, "dry-run")
-				result.Cloned = append(result.Cloned, repoName)
+				results <- syncResult{repoName: repoName, status: ProgressCloned}
 			}
 			continue
 		}
@@ -204,36 +295,101 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 		if s.git.IsGitRepo(localPath) {
 			// Pull existing repo
 			if err := s.pullRepo(ctx, localPath, repoName); err != nil {
-				result.Failed[repoName] = err
 				s.reportProgress(repoName, ProgressFailed, err.Error())
-				fmt.Printf("Failed to update %s: %v\n", repoName, err)
+				if s.opts.Verbose {
+					fmt.Printf("Failed to update %s: %v\n", repoName, err)
+				}
+				results <- syncResult{repoName: repoName, status: ProgressFailed, err: err}
 			} else {
-				result.Updated = append(result.Updated, repoName)
 				s.reportProgress(repoName, ProgressUpdated, "")
 				if s.opts.Verbose {
 					fmt.Printf("Updated: %s\n", repoName)
 				}
+				results <- syncResult{repoName: repoName, status: ProgressUpdated}
 			}
 		} else {
 			// Clone new repo
 			if err := s.cloneRepo(ctx, repo, localPath); err != nil {
-				result.Failed[repoName] = err
 				s.reportProgress(repoName, ProgressFailed, err.Error())
-				fmt.Printf("Failed to clone %s: %v\n", repoName, err)
+				if s.opts.Verbose {
+					fmt.Printf("Failed to clone %s: %v\n", repoName, err)
+				}
+				results <- syncResult{repoName: repoName, status: ProgressFailed, err: err}
 			} else {
-				result.Cloned = append(result.Cloned, repoName)
 				s.reportProgress(repoName, ProgressCloned, "")
 				if s.opts.Verbose {
 					fmt.Printf("Cloned: %s\n", repoName)
 				}
+				results <- syncResult{repoName: repoName, status: ProgressCloned}
 			}
 		}
 	}
+}
 
-	// Detect archived repos (exist locally but not on remote)
-	result.Archived = s.detectArchived(repos)
+func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result *Result) {
+	repoName := repo.GetFullName()
 
-	return result, nil
+	// Check include/exclude filters
+	if !s.shouldSync(repo.GetName()) {
+		if s.opts.Verbose {
+			fmt.Printf("Skipping %s (filtered)\n", repoName)
+		}
+		s.reportProgress(repoName, ProgressSkipped, "filtered")
+		result.Skipped = append(result.Skipped, repoName)
+		return
+	}
+
+	// Determine local path
+	localPath := filepath.Join(s.opts.Target, repo.GetOwner().GetLogin(), repo.GetName())
+
+	if s.opts.Verbose {
+		fmt.Printf("Processing %s -> %s\n", repoName, localPath)
+	}
+
+	if s.opts.DryRun {
+		if s.git.IsGitRepo(localPath) {
+			fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
+			s.reportProgress(repoName, ProgressUpdated, "dry-run")
+			result.Updated = append(result.Updated, repoName)
+		} else {
+			fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
+			s.reportProgress(repoName, ProgressCloned, "dry-run")
+			result.Cloned = append(result.Cloned, repoName)
+		}
+		return
+	}
+
+	// Report progress: starting
+	s.reportProgress(repoName, ProgressInProgress, "")
+
+	// Sync the repository
+	if s.git.IsGitRepo(localPath) {
+		// Pull existing repo
+		if err := s.pullRepo(ctx, localPath, repoName); err != nil {
+			result.Failed[repoName] = err
+			s.reportProgress(repoName, ProgressFailed, err.Error())
+			fmt.Printf("Failed to update %s: %v\n", repoName, err)
+		} else {
+			result.Updated = append(result.Updated, repoName)
+			s.reportProgress(repoName, ProgressUpdated, "")
+			if s.opts.Verbose {
+				fmt.Printf("Updated: %s\n", repoName)
+			}
+		}
+	} else {
+		// Clone new repo
+		if err := s.cloneRepo(ctx, repo, localPath); err != nil {
+			result.Failed[repoName] = err
+			s.reportProgress(repoName, ProgressFailed, err.Error())
+			fmt.Printf("Failed to clone %s: %v\n", repoName, err)
+		} else {
+			result.Cloned = append(result.Cloned, repoName)
+			s.reportProgress(repoName, ProgressCloned, "")
+			if s.opts.Verbose {
+				fmt.Printf("Cloned: %s\n", repoName)
+			}
+		}
+	}
 }
 
 // detectArchived finds local git repos that no longer exist on remote
@@ -298,12 +454,8 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 		return fmt.Errorf("failed to create parent directory: %w", err)
 	}
 
-	// Clone the repository
+	// Clone the repository using HTTPS (token auth is handled by Git instance)
 	cloneURL := repo.GetCloneURL()
-	if repo.GetPrivate() {
-		// Use SSH for private repos
-		cloneURL = repo.GetSSHURL()
-	}
 
 	if err := s.git.Clone(ctx, cloneURL, localPath); err != nil {
 		return err
@@ -326,12 +478,7 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 }
 
 func (s *Syncer) pullRepo(ctx context.Context, localPath, repoName string) error {
-	// Fetch first
-	if err := s.git.Fetch(ctx, localPath); err != nil {
-		return fmt.Errorf("fetch failed: %w", err)
-	}
-
-	// Pull changes
+	// Pull changes (includes fetch internally, no need for separate fetch)
 	if err := s.git.Pull(ctx, localPath); err != nil {
 		return fmt.Errorf("pull failed: %w", err)
 	}

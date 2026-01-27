@@ -25,6 +25,8 @@ type Git struct {
 	GitPath string
 	// Quiet suppresses stdout/stderr output (for TUI mode)
 	Quiet bool
+	// Token is the authentication token for HTTPS operations
+	Token string
 }
 
 // New creates a new Git instance
@@ -45,18 +47,64 @@ func NewQuiet() (*Git, error) {
 	return &Git{GitPath: gitPath, Quiet: true}, nil
 }
 
+// NewWithToken creates a new Git instance with authentication token
+func NewWithToken(token string) (*Git, error) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return nil, ErrGitNotInstalled
+	}
+	return &Git{GitPath: gitPath, Token: token}, nil
+}
+
+// NewQuietWithToken creates a new Git instance that suppresses output and uses auth token
+func NewQuietWithToken(token string) (*Git, error) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return nil, ErrGitNotInstalled
+	}
+	return &Git{GitPath: gitPath, Quiet: true, Token: token}, nil
+}
+
 // Clone clones a repository to the target directory
 func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
-	cmd := exec.CommandContext(ctx, g.GitPath, "clone", url, targetDir)
+	// If we have a token and it's an HTTPS URL, embed the token for authentication
+	cloneURL := g.authenticateURL(url)
+
+	cmd := exec.CommandContext(ctx, g.GitPath, "clone", cloneURL, targetDir)
 	if !g.Quiet {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
 
+	// Always capture stderr for error reporting
+	var stderrBuf strings.Builder
+	if g.Quiet {
+		cmd.Stderr = &stderrBuf
+	}
+
 	if err := cmd.Run(); err != nil {
+		errMsg := stderrBuf.String()
+		if errMsg != "" {
+			return fmt.Errorf("%w: %s", ErrCloneFailed, strings.TrimSpace(errMsg))
+		}
 		return fmt.Errorf("%w: %v", ErrCloneFailed, err)
 	}
 	return nil
+}
+
+// authenticateURL adds authentication token to HTTPS URLs
+func (g *Git) authenticateURL(url string) string {
+	if g.Token == "" {
+		return url
+	}
+
+	// Only modify HTTPS URLs
+	if strings.HasPrefix(url, "https://github.com/") {
+		// Transform https://github.com/owner/repo.git to https://oauth2:TOKEN@github.com/owner/repo.git
+		return strings.Replace(url, "https://github.com/", "https://oauth2:"+g.Token+"@github.com/", 1)
+	}
+
+	return url
 }
 
 // Pull performs a git pull in the specified directory
@@ -67,7 +115,17 @@ func (g *Git) Pull(ctx context.Context, repoDir string) error {
 		cmd.Stderr = os.Stderr
 	}
 
+	// Always capture stderr for error reporting
+	var stderrBuf strings.Builder
+	if g.Quiet {
+		cmd.Stderr = &stderrBuf
+	}
+
 	if err := cmd.Run(); err != nil {
+		errMsg := stderrBuf.String()
+		if errMsg != "" {
+			return fmt.Errorf("%w: %s", ErrPullFailed, strings.TrimSpace(errMsg))
+		}
 		return fmt.Errorf("%w: %v", ErrPullFailed, err)
 	}
 	return nil

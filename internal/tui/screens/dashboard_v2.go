@@ -132,8 +132,9 @@ func (d *DashboardV2) initList() {
 	if listWidth < 40 {
 		listWidth = 60
 	}
-	if listHeight < 6 {
-		listHeight = 12
+	// Ensure minimum height to show multiple items (delegate height is 3)
+	if listHeight < 15 {
+		listHeight = 15
 	}
 
 	l := list.New(items, delegate, listWidth, listHeight)
@@ -246,7 +247,12 @@ func (d *DashboardV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		d.width = msg.Width
 		d.height = msg.Height
 		d.actionList.SetWidth(msg.Width - 8)
-		d.actionList.SetHeight(msg.Height - 16)
+		// Ensure minimum height for list to show multiple items
+		listHeight := msg.Height - 16
+		if listHeight < 15 {
+			listHeight = 15
+		}
+		d.actionList.SetHeight(listHeight)
 
 	case tea.KeyMsg:
 		// Handle Ctrl+C - require double press
