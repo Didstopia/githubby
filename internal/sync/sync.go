@@ -14,6 +14,30 @@ import (
 	"github.com/Didstopia/githubby/internal/github"
 )
 
+// ProgressStatus represents the status of a sync operation
+type ProgressStatus int
+
+const (
+	// ProgressPending indicates the repo is queued for sync
+	ProgressPending ProgressStatus = iota
+	// ProgressInProgress indicates the repo is currently being synced
+	ProgressInProgress
+	// ProgressCloned indicates the repo was cloned
+	ProgressCloned
+	// ProgressUpdated indicates the repo was updated
+	ProgressUpdated
+	// ProgressSkipped indicates the repo was skipped
+	ProgressSkipped
+	// ProgressFailed indicates the repo sync failed
+	ProgressFailed
+)
+
+// ProgressCallback is called to report sync progress
+// repoName is the full repository name (owner/repo)
+// status is the current status
+// message provides additional context (e.g., error message)
+type ProgressCallback func(repoName string, status ProgressStatus, message string)
+
 // Options configures the sync operation
 type Options struct {
 	// Target directory for synced repositories
@@ -33,6 +57,9 @@ type Options struct {
 
 	// Verbose enables verbose output
 	Verbose bool
+
+	// OnProgress is called to report sync progress (optional)
+	OnProgress ProgressCallback
 }
 
 // Result represents the result of a sync operation
@@ -140,6 +167,7 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 			if s.opts.Verbose {
 				fmt.Printf("Skipping %s (filtered)\n", repoName)
 			}
+			s.reportProgress(repoName, ProgressSkipped, "filtered")
 			result.Skipped = append(result.Skipped, repoName)
 			continue
 		}
@@ -154,22 +182,29 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 		if s.opts.DryRun {
 			if s.git.IsGitRepo(localPath) {
 				fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
+				s.reportProgress(repoName, ProgressUpdated, "dry-run")
 				result.Updated = append(result.Updated, repoName)
 			} else {
 				fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
+				s.reportProgress(repoName, ProgressCloned, "dry-run")
 				result.Cloned = append(result.Cloned, repoName)
 			}
 			continue
 		}
+
+		// Report progress: starting
+		s.reportProgress(repoName, ProgressInProgress, "")
 
 		// Sync the repository
 		if s.git.IsGitRepo(localPath) {
 			// Pull existing repo
 			if err := s.pullRepo(ctx, localPath, repoName); err != nil {
 				result.Failed[repoName] = err
+				s.reportProgress(repoName, ProgressFailed, err.Error())
 				fmt.Printf("Failed to update %s: %v\n", repoName, err)
 			} else {
 				result.Updated = append(result.Updated, repoName)
+				s.reportProgress(repoName, ProgressUpdated, "")
 				if s.opts.Verbose {
 					fmt.Printf("Updated: %s\n", repoName)
 				}
@@ -178,9 +213,11 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 			// Clone new repo
 			if err := s.cloneRepo(ctx, repo, localPath); err != nil {
 				result.Failed[repoName] = err
+				s.reportProgress(repoName, ProgressFailed, err.Error())
 				fmt.Printf("Failed to clone %s: %v\n", repoName, err)
 			} else {
 				result.Cloned = append(result.Cloned, repoName)
+				s.reportProgress(repoName, ProgressCloned, "")
 				if s.opts.Verbose {
 					fmt.Printf("Cloned: %s\n", repoName)
 				}
@@ -189,6 +226,13 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 	}
 
 	return result, nil
+}
+
+// reportProgress calls the progress callback if set
+func (s *Syncer) reportProgress(repoName string, status ProgressStatus, message string) {
+	if s.opts.OnProgress != nil {
+		s.opts.OnProgress(repoName, status, message)
+	}
 }
 
 func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath string) error {

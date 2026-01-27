@@ -111,6 +111,15 @@ func Execute() {
 	// Store context for subcommands
 	rootCmd.SetContext(ctx)
 
+	// Check if running with no arguments - launch TUI
+	if len(os.Args) == 1 {
+		if err := RunTUI(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

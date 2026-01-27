@@ -21,6 +21,9 @@ type Client interface {
 	// ListOrgRepos returns all repositories for an organization
 	ListOrgRepos(ctx context.Context, org string, opts *ListOptions) ([]*gh.Repository, error)
 
+	// ListUserOrgs returns all organizations the authenticated user belongs to
+	ListUserOrgs(ctx context.Context) ([]*gh.Organization, error)
+
 	// GetRepository returns information about a single repository
 	GetRepository(ctx context.Context, owner, repo string) (*gh.Repository, error)
 
