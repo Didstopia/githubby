@@ -11,7 +11,7 @@ import (
 	"github.com/Didstopia/githubby/util"
 	"github.com/google/go-github/v68/github"
 	"github.com/spf13/cobra"
-	"gopkg.in/cheggaaa/pb.v3"
+	"github.com/cheggaaa/pb/v3"
 )
 
 // FilterDays sets the maximum amount of days since release
