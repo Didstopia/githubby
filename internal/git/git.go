@@ -23,6 +23,8 @@ var (
 type Git struct {
 	// GitPath is the path to the git executable
 	GitPath string
+	// Quiet suppresses stdout/stderr output (for TUI mode)
+	Quiet bool
 }
 
 // New creates a new Git instance
@@ -34,11 +36,22 @@ func New() (*Git, error) {
 	return &Git{GitPath: gitPath}, nil
 }
 
+// NewQuiet creates a new Git instance that suppresses output
+func NewQuiet() (*Git, error) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return nil, ErrGitNotInstalled
+	}
+	return &Git{GitPath: gitPath, Quiet: true}, nil
+}
+
 // Clone clones a repository to the target directory
 func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
 	cmd := exec.CommandContext(ctx, g.GitPath, "clone", url, targetDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if !g.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%w: %v", ErrCloneFailed, err)
@@ -49,8 +62,10 @@ func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
 // Pull performs a git pull in the specified directory
 func (g *Git) Pull(ctx context.Context, repoDir string) error {
 	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "pull")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if !g.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%w: %v", ErrPullFailed, err)
@@ -81,8 +96,10 @@ func (g *Git) GetRemoteURL(ctx context.Context, repoDir string) (string, error) 
 // Fetch performs a git fetch in the specified directory
 func (g *Git) Fetch(ctx context.Context, repoDir string) error {
 	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "fetch", "--all")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if !g.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 

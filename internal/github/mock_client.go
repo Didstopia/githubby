@@ -20,6 +20,9 @@ type MockClient struct {
 	// ListOrgReposFunc can be set to mock ListOrgRepos behavior
 	ListOrgReposFunc func(ctx context.Context, org string, opts *ListOptions) ([]*gh.Repository, error)
 
+	// ListUserOrgsFunc can be set to mock ListUserOrgs behavior
+	ListUserOrgsFunc func(ctx context.Context) ([]*gh.Organization, error)
+
 	// GetRepositoryFunc can be set to mock GetRepository behavior
 	GetRepositoryFunc func(ctx context.Context, owner, repo string) (*gh.Repository, error)
 
@@ -75,6 +78,15 @@ func (m *MockClient) ListOrgRepos(ctx context.Context, org string, opts *ListOpt
 	m.Calls = append(m.Calls, MockCall{Method: "ListOrgRepos", Args: []interface{}{org, opts}})
 	if m.ListOrgReposFunc != nil {
 		return m.ListOrgReposFunc(ctx, org, opts)
+	}
+	return nil, nil
+}
+
+// ListUserOrgs implements Client.ListUserOrgs
+func (m *MockClient) ListUserOrgs(ctx context.Context) ([]*gh.Organization, error) {
+	m.Calls = append(m.Calls, MockCall{Method: "ListUserOrgs", Args: []interface{}{}})
+	if m.ListUserOrgsFunc != nil {
+		return m.ListUserOrgsFunc(ctx)
 	}
 	return nil, nil
 }

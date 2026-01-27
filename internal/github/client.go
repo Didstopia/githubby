@@ -152,6 +152,32 @@ func (c *client) ListOrgRepos(ctx context.Context, org string, opts *ListOptions
 	return allRepos, nil
 }
 
+// ListUserOrgs returns all organizations the authenticated user belongs to
+func (c *client) ListUserOrgs(ctx context.Context) ([]*gh.Organization, error) {
+	var allOrgs []*gh.Organization
+
+	opts := &gh.ListOptions{
+		Page:    1,
+		PerPage: 100,
+	}
+
+	for {
+		orgs, resp, err := c.ghClient.Organizations.List(ctx, "", opts)
+		if err != nil {
+			return nil, wrapAPIError(resp, err)
+		}
+
+		allOrgs = append(allOrgs, orgs...)
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return allOrgs, nil
+}
+
 // GetRepository returns information about a single repository
 func (c *client) GetRepository(ctx context.Context, owner, repo string) (*gh.Repository, error) {
 	repository, resp, err := c.ghClient.Repositories.Get(ctx, owner, repo)

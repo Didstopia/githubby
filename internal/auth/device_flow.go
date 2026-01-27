@@ -148,3 +148,46 @@ func GetDeviceFlowInstructions(code *device.CodeResponse, hostname string) strin
 	return fmt.Sprintf(`! First, copy your one-time code: %s
 Press Enter to open %s in your browser...`, code.UserCode, verificationURL)
 }
+
+// RequestDeviceCode requests a device code from GitHub for OAuth
+// This is the first step of the device flow - returns quickly with a code to show user
+func RequestDeviceCode(ctx context.Context) (*device.CodeResponse, error) {
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	codeURL := "https://github.com/login/device/code"
+	scopes := []string{"repo", "read:org"}
+
+	code, err := device.RequestCode(httpClient, codeURL, GitHubOAuthClientID, scopes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request device code: %w", err)
+	}
+
+	return code, nil
+}
+
+// PollForToken polls GitHub waiting for user to authorize the device code
+// This blocks until the user completes authorization or the code expires
+func PollForToken(ctx context.Context, code *device.CodeResponse) (*DeviceFlowResult, error) {
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	tokenURL := "https://github.com/login/oauth/access_token"
+
+	waitOpts := device.WaitOptions{
+		ClientID:   GitHubOAuthClientID,
+		DeviceCode: code,
+	}
+
+	accessToken, err := device.Wait(ctx, httpClient, tokenURL, waitOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to complete device flow: %w", err)
+	}
+
+	return &DeviceFlowResult{
+		Token:     accessToken.Token,
+		TokenType: accessToken.Type,
+	}, nil
+}
