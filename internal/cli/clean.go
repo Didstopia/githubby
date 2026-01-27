@@ -3,12 +3,11 @@ package cli
 import (
 	"fmt"
 	"math"
-	"os"
 	"time"
 
+	"github.com/cheggaaa/pb/v3"
 	gh "github.com/google/go-github/v68/github"
 	"github.com/spf13/cobra"
-	"gopkg.in/cheggaaa/pb.v3"
 
 	gherrors "github.com/Didstopia/githubby/internal/errors"
 	"github.com/Didstopia/githubby/internal/github"

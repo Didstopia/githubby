@@ -167,7 +167,7 @@ func (c *client) GetRateLimit(ctx context.Context) (*gh.RateLimits, error) {
 	if err != nil {
 		return nil, wrapAPIError(resp, err)
 	}
-	return rateLimits.GetResources(), nil
+	return rateLimits, nil
 }
 
 // wrapAPIError converts a GitHub API response error to our error type
