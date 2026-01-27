@@ -3,7 +3,6 @@ package screens
 import (
 	"context"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -51,6 +50,7 @@ type SyncProgressScreen struct {
 	reposCompleted   int
 	lastDisplayedETA time.Duration
 	etaUpdateCount   int
+	lastETADoneCount int // tracks done count when ETA was last calculated
 
 	// Dimensions
 	width  int
@@ -282,10 +282,41 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.reposCompleted++
 		}
 
-		// Update progress bar
+		// Update progress bar and ETA
 		if s.totalRepos > 0 {
 			done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed
 			cmds = append(cmds, s.progress.SetPercent(float64(done)/float64(s.totalRepos)))
+
+			// Recalculate ETA only when done count actually changes (repo completed)
+			// This prevents ETA from going up while waiting for batch to complete
+			if done > s.lastETADoneCount && msg.update.status != "syncing" {
+				s.lastETADoneCount = done
+
+				// Only calculate ETA after warmup period
+				minSamples := min(10, s.totalRepos/10)
+				if minSamples < 3 {
+					minSamples = 3
+				}
+
+				if done >= minSamples {
+					elapsed := time.Since(s.startTime)
+					avgPerRepo := elapsed / time.Duration(done)
+					remaining := s.totalRepos - done
+					newETA := avgPerRepo * time.Duration(remaining)
+
+					// Smooth the ETA: blend 70% old, 30% new (exponential moving average)
+					if s.lastDisplayedETA > 0 {
+						newETA = time.Duration(float64(s.lastDisplayedETA)*0.7 + float64(newETA)*0.3)
+					}
+
+					// Only decrease ETA, never increase (user expectation)
+					// Allow small increases (< 10%) for accuracy, but cap large jumps
+					if s.lastDisplayedETA == 0 || newETA <= s.lastDisplayedETA || float64(newETA) < float64(s.lastDisplayedETA)*1.1 {
+						s.lastDisplayedETA = newETA
+					}
+					s.etaUpdateCount++
+				}
+			}
 		}
 
 		// Continue listening for more progress updates
@@ -339,39 +370,10 @@ func (s *SyncProgressScreen) View() string {
 		content.WriteString(s.progress.ViewAs(pct))
 		content.WriteString(fmt.Sprintf(" %d/%d repos", done, total))
 
-		// Calculate and show ETA with warmup and smoothing
-		// Only show ETA after minimum sample size to avoid wild early estimates
-		minSamples := min(10, total/10)
-		if minSamples < 3 {
-			minSamples = 3
-		}
-
-		if s.syncing && done >= minSamples {
-			elapsed := time.Since(s.startTime)
-			avgPerRepo := elapsed / time.Duration(done)
-			remaining := total - done
-			newETA := avgPerRepo * time.Duration(remaining)
-
-			// Smooth the ETA: blend 70% old, 30% new (exponential moving average)
-			if s.lastDisplayedETA > 0 {
-				newETA = time.Duration(float64(s.lastDisplayedETA)*0.7 + float64(newETA)*0.3)
-			}
-
-			// Only update display if ETA changed by >5% or it's been a while
-			etaChangePercent := 0.0
-			if s.lastDisplayedETA > 0 {
-				etaChangePercent = math.Abs(float64(newETA-s.lastDisplayedETA)) / float64(s.lastDisplayedETA)
-			}
-
-			if s.lastDisplayedETA == 0 || etaChangePercent > 0.05 || s.etaUpdateCount%5 == 0 {
-				s.lastDisplayedETA = newETA
-			}
-			s.etaUpdateCount++
-
-			// Only show ETA if it's meaningful (> 5 seconds remaining)
-			if s.lastDisplayedETA > 5*time.Second {
-				content.WriteString(fmt.Sprintf(" • ~%s remaining", humanizeDuration(s.lastDisplayedETA)))
-			}
+		// Show pre-calculated ETA (calculated in Update when repos complete)
+		// This prevents ETA from going up while waiting for batch completions
+		if s.syncing && s.lastDisplayedETA > 5*time.Second {
+			content.WriteString(fmt.Sprintf(" • ~%s remaining", humanizeDuration(s.lastDisplayedETA)))
 		}
 		content.WriteString("\n\n")
 	}
