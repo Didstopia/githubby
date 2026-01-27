@@ -162,7 +162,18 @@ func printSyncSummary(result *sync.Result) {
 		}
 	}
 
+	if len(result.Archived) > 0 {
+		fmt.Printf("\nArchived (%d) - preserved locally, no longer on remote:\n", len(result.Archived))
+		for _, repo := range result.Archived {
+			fmt.Printf("  - %s\n", repo)
+		}
+	}
+
 	fmt.Println(strings.Repeat("=", 50))
-	fmt.Printf("Total: %d cloned, %d updated, %d skipped, %d failed\n",
+	summary := fmt.Sprintf("Total: %d cloned, %d updated, %d skipped, %d failed",
 		len(result.Cloned), len(result.Updated), len(result.Skipped), len(result.Failed))
+	if len(result.Archived) > 0 {
+		summary += fmt.Sprintf(", %d archived", len(result.Archived))
+	}
+	fmt.Println(summary)
 }

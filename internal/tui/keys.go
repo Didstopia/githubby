@@ -107,7 +107,7 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("esc", "cancel"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("esc", "backspace"),
+			key.WithKeys("esc"),
 			key.WithHelp("esc", "go back"),
 		),
 		Help: key.NewBinding(

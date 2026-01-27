@@ -3,6 +3,8 @@
 
 ### Code Coverage ###
 coverage.txt
+coverage.out
+*.coverprofile
 
 ### Go ###
 # Binaries for programs and plugins
@@ -22,6 +24,7 @@ vendor/
 
 # Binary
 /githubby
+/githubby-*
 /debug
 /release
 /debug/

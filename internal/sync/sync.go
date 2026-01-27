@@ -4,6 +4,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,15 +76,19 @@ type Result struct {
 
 	// Failed repositories with errors
 	Failed map[string]error
+
+	// Archived repositories (exist locally but not on remote - preserved for backup)
+	Archived []string
 }
 
 // NewResult creates a new sync result
 func NewResult() *Result {
 	return &Result{
-		Cloned:  make([]string, 0),
-		Updated: make([]string, 0),
-		Skipped: make([]string, 0),
-		Failed:  make(map[string]error),
+		Cloned:   make([]string, 0),
+		Updated:  make([]string, 0),
+		Skipped:  make([]string, 0),
+		Failed:   make(map[string]error),
+		Archived: make([]string, 0),
 	}
 }
 
@@ -225,7 +230,58 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 		}
 	}
 
+	// Detect archived repos (exist locally but not on remote)
+	result.Archived = s.detectArchived(repos)
+
 	return result, nil
+}
+
+// detectArchived finds local git repos that no longer exist on remote
+// These are "archived" repos - preserved locally for backup purposes
+func (s *Syncer) detectArchived(remoteRepos []*gh.Repository) []string {
+	// Build set of expected repo paths from remote
+	remoteSet := make(map[string]bool)
+	for _, repo := range remoteRepos {
+		// Use owner/repo path format
+		path := filepath.Join(repo.GetOwner().GetLogin(), repo.GetName())
+		remoteSet[path] = true
+	}
+
+	// Scan local target directory for git repos
+	var archived []string
+
+	// Target directory might not exist yet
+	if _, err := os.Stat(s.opts.Target); os.IsNotExist(err) {
+		return archived
+	}
+
+	_ = filepath.WalkDir(s.opts.Target, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip errors
+		}
+
+		// Look for .git directories
+		if d.Name() == ".git" && d.IsDir() {
+			repoPath := filepath.Dir(path)
+			relPath, err := filepath.Rel(s.opts.Target, repoPath)
+			if err != nil {
+				return nil
+			}
+
+			// Check if this repo exists on remote
+			// Normalize path separators for cross-platform
+			normalizedPath := filepath.ToSlash(relPath)
+			if !remoteSet[normalizedPath] {
+				archived = append(archived, normalizedPath)
+			}
+
+			return fs.SkipDir // Don't recurse into .git
+		}
+
+		return nil
+	})
+
+	return archived
 }
 
 // reportProgress calls the progress callback if set

@@ -102,10 +102,19 @@ func RunTUI() error {
 	// Register screen factories for lazy initialization
 	registerScreenFactories(app)
 
-	// Set initial screen based on auth state
-	if isAuthenticated {
+	// Set initial screen based on auth state AND config completeness
+	// Config is "complete" if at least one profile exists
+	hasProfiles := len(storage.GetProfiles()) > 0
+
+	if isAuthenticated && hasProfiles {
+		// Fully set up - go to dashboard
 		app.RegisterScreen(tui.ScreenDashboard, screens.NewDashboardV2(ctx, app))
+	} else if isAuthenticated && !hasProfiles {
+		// Auth done but no profiles - resume onboarding from sync config
+		onboarding := screens.NewOnboarding(ctx, screens.WithEmbeddedMode(), screens.WithSkipToSyncConfig(username))
+		app.RegisterScreen(tui.ScreenOnboarding, onboarding)
 	} else {
+		// Not authenticated - start fresh onboarding
 		app.RegisterScreen(tui.ScreenOnboarding, screens.NewOnboarding(ctx, screens.WithEmbeddedMode()))
 	}
 
@@ -138,5 +147,10 @@ func registerScreenFactories(app *tui.App) {
 	// Sync progress screen factory (for profile quick sync)
 	app.RegisterScreenFactory(tui.ScreenSyncProgress, func(ctx context.Context, a *tui.App) tui.ScreenModel {
 		return screens.NewSyncProgress(ctx, a)
+	})
+
+	// Confirm delete screen factory
+	app.RegisterScreenFactory(tui.ScreenConfirmDelete, func(ctx context.Context, a *tui.App) tui.ScreenModel {
+		return screens.NewConfirmDeleteScreen(ctx, a)
 	})
 }

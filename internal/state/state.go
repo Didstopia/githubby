@@ -9,10 +9,11 @@ import (
 
 // State represents the persisted application state
 type State struct {
-	Version     int            `yaml:"version"`
-	Profiles    []*SyncProfile `yaml:"profiles"`
-	SyncHistory []*SyncRecord  `yaml:"sync_history"`
-	RepoCache   []*CachedRepo  `yaml:"repo_cache,omitempty"`
+	Version            int            `yaml:"version"`
+	OnboardingComplete bool           `yaml:"onboarding_complete,omitempty"`
+	Profiles           []*SyncProfile `yaml:"profiles"`
+	SyncHistory        []*SyncRecord  `yaml:"sync_history"`
+	RepoCache          []*CachedRepo  `yaml:"repo_cache,omitempty"`
 }
 
 // SyncProfile represents a saved sync configuration
@@ -23,7 +24,8 @@ type SyncProfile struct {
 	Source         string    `yaml:"source"`  // username or org name
 	TargetDir      string    `yaml:"target_dir"`
 	IncludePrivate bool      `yaml:"include_private"`
-	SelectedRepos  []string  `yaml:"selected_repos,omitempty"` // specific repos, empty = all
+	SyncAllRepos   bool      `yaml:"sync_all_repos,omitempty"`  // true = fetch all from API, false = use SelectedRepos
+	SelectedRepos  []string  `yaml:"selected_repos,omitempty"` // specific repos (only used when SyncAllRepos is false)
 	IncludeFilter  []string  `yaml:"include_filter,omitempty"` // glob patterns
 	ExcludeFilter  []string  `yaml:"exclude_filter,omitempty"` // glob patterns
 	CreatedAt      time.Time `yaml:"created_at"`
@@ -32,15 +34,16 @@ type SyncProfile struct {
 
 // SyncRecord represents a completed sync operation
 type SyncRecord struct {
-	ProfileID   string           `yaml:"profile_id"`
-	ProfileName string           `yaml:"profile_name"`
-	StartedAt   time.Time        `yaml:"started_at"`
-	CompletedAt time.Time        `yaml:"completed_at"`
-	TotalRepos  int              `yaml:"total_repos"`
-	Cloned      int              `yaml:"cloned"`
-	Updated     int              `yaml:"updated"`
-	Skipped     int              `yaml:"skipped"`
-	Failed      int              `yaml:"failed"`
+	ProfileID   string            `yaml:"profile_id"`
+	ProfileName string            `yaml:"profile_name"`
+	StartedAt   time.Time         `yaml:"started_at"`
+	CompletedAt time.Time         `yaml:"completed_at"`
+	TotalRepos  int               `yaml:"total_repos"`
+	Cloned      int               `yaml:"cloned"`
+	Updated     int               `yaml:"updated"`
+	Skipped     int               `yaml:"skipped"`
+	Failed      int               `yaml:"failed"`
+	Archived    int               `yaml:"archived"` // repos that exist locally but not on remote (preserved)
 	Results     []*RepoSyncResult `yaml:"results,omitempty"`
 }
 
@@ -130,15 +133,29 @@ func (s *State) UpdateProfile(profile *SyncProfile) bool {
 	return false
 }
 
-// DeleteProfile removes a profile by ID
+// DeleteProfile removes a profile by ID and its associated sync history
 func (s *State) DeleteProfile(id string) bool {
+	found := false
 	for i, p := range s.Profiles {
 		if p.ID == id {
 			s.Profiles = append(s.Profiles[:i], s.Profiles[i+1:]...)
-			return true
+			found = true
+			break
 		}
 	}
-	return false
+
+	if found {
+		// Also remove sync history records for this profile
+		filtered := make([]*SyncRecord, 0, len(s.SyncHistory))
+		for _, r := range s.SyncHistory {
+			if r.ProfileID != id {
+				filtered = append(filtered, r)
+			}
+		}
+		s.SyncHistory = filtered
+	}
+
+	return found
 }
 
 // AddSyncRecord adds a sync record to history
@@ -172,6 +189,7 @@ func (s *State) GetSyncStats() SyncStats {
 		stats.TotalUpdated += r.Updated
 		stats.TotalSkipped += r.Skipped
 		stats.TotalFailed += r.Failed
+		stats.TotalArchived += r.Archived
 	}
 
 	// Find last sync time
@@ -186,12 +204,13 @@ func (s *State) GetSyncStats() SyncStats {
 
 // SyncStats provides aggregate sync statistics
 type SyncStats struct {
-	TotalSyncs   int
-	TotalCloned  int
-	TotalUpdated int
-	TotalSkipped int
-	TotalFailed  int
-	LastSync     time.Time
+	TotalSyncs    int
+	TotalCloned   int
+	TotalUpdated  int
+	TotalSkipped  int
+	TotalFailed   int
+	TotalArchived int
+	LastSync      time.Time
 }
 
 // TotalReposSynced returns the total number of repos successfully synced
@@ -234,6 +253,8 @@ func (r *SyncRecord) Complete() {
 			r.Skipped++
 		case "failed":
 			r.Failed++
+		case "archived":
+			r.Archived++
 		}
 	}
 }

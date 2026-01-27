@@ -566,11 +566,16 @@ func (w *SyncWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					w.targetDir,
 					w.includePrivate,
 				)
-				repoNames := make([]string, len(w.selectedRepos))
-				for i, r := range w.selectedRepos {
-					repoNames[i] = r.GetFullName()
+				// Set sync mode based on user's choice
+				profile.SyncAllRepos = w.selectAllRepos
+				if !w.selectAllRepos {
+					// Only store specific repos when not syncing all
+					repoNames := make([]string, len(w.selectedRepos))
+					for i, r := range w.selectedRepos {
+						repoNames[i] = r.GetFullName()
+					}
+					profile.SelectedRepos = repoNames
 				}
-				profile.SelectedRepos = repoNames
 				if !w.syncRecord.CompletedAt.IsZero() {
 					profile.LastSyncAt = w.syncRecord.CompletedAt
 				}
@@ -969,7 +974,11 @@ func (w *SyncWizard) viewConfirm() string {
 	summary.WriteString(w.styles.Info.Render("Summary:"))
 	summary.WriteString("\n")
 	summary.WriteString(fmt.Sprintf("  Source: %s/%s\n", w.sourceType, w.sourceName))
-	summary.WriteString(fmt.Sprintf("  Repositories: %d selected\n", len(w.selectedRepos)))
+	if w.selectAllRepos {
+		summary.WriteString(fmt.Sprintf("  Repositories: All (%d repos, auto-updates with new repos)\n", len(w.selectedRepos)))
+	} else {
+		summary.WriteString(fmt.Sprintf("  Repositories: %d selected\n", len(w.selectedRepos)))
+	}
 	summary.WriteString(fmt.Sprintf("  Target: %s\n", w.targetDir))
 	summary.WriteString(fmt.Sprintf("  Private repos: %v\n", w.includePrivate))
 
@@ -995,12 +1004,13 @@ func (w *SyncWizard) viewComplete() string {
 	var content strings.Builder
 
 	// Get counts from sync result
-	cloned, updated, skipped, failed := 0, 0, 0, 0
+	cloned, updated, skipped, failed, archived := 0, 0, 0, 0, 0
 	if w.syncResult != nil {
 		cloned = len(w.syncResult.Cloned)
 		updated = len(w.syncResult.Updated)
 		skipped = len(w.syncResult.Skipped)
 		failed = len(w.syncResult.Failed)
+		archived = len(w.syncResult.Archived)
 	}
 
 	total := cloned + updated + skipped + failed
@@ -1028,8 +1038,11 @@ func (w *SyncWizard) viewComplete() string {
 	if failed > 0 {
 		content.WriteString(fmt.Sprintf("  %s Failed: %d\n", w.styles.Error.Render("●"), failed))
 	}
+	if archived > 0 {
+		content.WriteString(fmt.Sprintf("  %s Archived: %d (preserved locally, no longer on remote)\n", w.styles.Info.Render("●"), archived))
+	}
 
-	if cloned == 0 && updated == 0 && skipped == 0 && failed == 0 {
+	if cloned == 0 && updated == 0 && skipped == 0 && failed == 0 && archived == 0 {
 		content.WriteString(w.styles.Muted.Render("  No changes - all repositories up to date\n"))
 	}
 

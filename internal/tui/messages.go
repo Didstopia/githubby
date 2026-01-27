@@ -111,6 +111,21 @@ type SyncPendingProfilesMsg struct{}
 // ClearMessageMsg signals a temporary message should be cleared
 type ClearMessageMsg struct{}
 
+// DeleteProfileRequestMsg signals user wants to delete a profile (shows confirmation)
+type DeleteProfileRequestMsg struct {
+	ProfileID   string
+	ProfileName string
+}
+
+// DeleteProfileConfirmedMsg signals user confirmed profile deletion
+type DeleteProfileConfirmedMsg struct {
+	ProfileID   string
+	ProfileName string
+}
+
+// DeleteProfileCancelledMsg signals user cancelled profile deletion
+type DeleteProfileCancelledMsg struct{}
+
 // Clean Messages
 
 // ReleasesLoadedMsg signals releases have been fetched

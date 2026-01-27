@@ -50,10 +50,10 @@ type DashboardV2 struct {
 	actionList list.Model
 
 	// Dashboard state
-	profiles    []*state.SyncProfile
-	stats       state.SyncStats
-	lastSync    time.Time
-	pendingSync int
+	profiles      []*state.SyncProfile
+	lastSync      time.Time
+	pendingSync   int
+	archivedCount int
 
 	// Dimensions
 	width  int
@@ -65,10 +65,6 @@ type DashboardV2 struct {
 	// Exit confirmation state
 	exitPending bool
 	exitKey     string
-
-	// Delete confirmation state
-	deleteConfirmPending bool
-	deleteProfileID      string
 }
 
 // NewDashboardV2 creates a new dashboard screen
@@ -94,14 +90,27 @@ func (d *DashboardV2) loadData() {
 	}
 
 	d.profiles = d.app.Storage().GetProfiles()
-	d.stats = d.app.Storage().GetSyncStats()
-	d.lastSync = d.stats.LastSync
 
-	// Calculate pending syncs (profiles that haven't synced in 24h)
+	// Derive last sync time and pending count from profiles
+	d.lastSync = time.Time{}
 	d.pendingSync = 0
 	for _, p := range d.profiles {
-		if time.Since(p.LastSyncAt) > 24*time.Hour {
+		// Track most recent sync across all profiles
+		if p.LastSyncAt.After(d.lastSync) {
+			d.lastSync = p.LastSyncAt
+		}
+		// Count profiles that haven't synced in 24h (or never synced)
+		if p.LastSyncAt.IsZero() || time.Since(p.LastSyncAt) > 24*time.Hour {
 			d.pendingSync++
+		}
+	}
+
+	// Get archived count from the most recent sync records
+	// We sum up archived counts from the latest sync of each profile
+	d.archivedCount = 0
+	for _, p := range d.profiles {
+		if record := d.app.Storage().GetLatestSyncForProfile(p.ID); record != nil {
+			d.archivedCount += record.Archived
 		}
 	}
 }
@@ -173,9 +182,16 @@ func (d *DashboardV2) buildMenuItems() []list.Item {
 		if !p.LastSyncAt.IsZero() {
 			lastSync = formatTimeAgo(p.LastSyncAt)
 		}
+		// Show sync mode indicator
+		syncMode := ""
+		if p.SyncAllRepos || len(p.SelectedRepos) == 0 {
+			syncMode = " (all repos)"
+		} else {
+			syncMode = fmt.Sprintf(" (%d repos)", len(p.SelectedRepos))
+		}
 		items = append(items, DashboardItem{
 			title:       p.Name,
-			description: fmt.Sprintf("%s/%s - Last sync: %s", p.Type, p.Source, lastSync),
+			description: fmt.Sprintf("%s/%s%s - Last sync: %s", p.Type, p.Source, syncMode, lastSync),
 			profileID:   p.ID,
 		})
 	}
@@ -207,7 +223,7 @@ func (d *DashboardV2) ShortHelp() []key.Binding {
 	// Add contextual shortcuts if a profile is selected
 	if item, ok := d.actionList.SelectedItem().(DashboardItem); ok && item.profileID != "" {
 		bindings = append(bindings,
-			key.NewBinding(key.WithKeys("d", "x"), key.WithHelp("d/x", "delete")),
+			key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "delete")),
 		)
 	}
 
@@ -249,28 +265,26 @@ func (d *DashboardV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case msg.String() == "n":
 			d.exitPending = false
-			d.deleteConfirmPending = false
 			return d, func() tea.Msg {
 				return tui.NewSyncRequestedMsg{}
 			}
 
-		case msg.String() == "d" || msg.String() == "x":
+		case msg.String() == "d":
 			d.exitPending = false
 			// Check if a profile is selected
 			if item, ok := d.actionList.SelectedItem().(DashboardItem); ok && item.profileID != "" {
-				if d.deleteConfirmPending && d.deleteProfileID == item.profileID {
-					// Confirmed delete
-					d.deleteConfirmPending = false
-					return d, d.deleteProfile(item.profileID)
-				}
-				// First press - ask for confirmation
-				d.deleteConfirmPending = true
-				d.deleteProfileID = item.profileID
 				profile := d.app.Storage().GetProfile(item.profileID)
+				profileName := item.title
 				if profile != nil {
-					d.message = fmt.Sprintf("Press d/x again to delete '%s'", profile.Name)
+					profileName = profile.Name
 				}
-				return d, tui.ClearMessageCmd(3 * time.Second)
+				// Show confirmation screen
+				return d, func() tea.Msg {
+					return tui.DeleteProfileRequestMsg{
+						ProfileID:   item.profileID,
+						ProfileName: profileName,
+					}
+				}
 			}
 
 		case key.Matches(msg, d.keys.Back):
@@ -289,13 +303,9 @@ func (d *DashboardV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			d.exitKey = "q"
 			return d, tui.ExitTimeoutCmd(tui.ExitConfirmTimeout)
 		}
-		// Reset confirmations on other key presses
+		// Reset exit confirmation on other key presses
 		if d.exitPending && msg.String() != "q" && msg.String() != "escape" {
 			d.exitPending = false
-		}
-		if d.deleteConfirmPending && msg.String() != "d" && msg.String() != "x" {
-			d.deleteConfirmPending = false
-			d.message = ""
 		}
 
 	case tui.ExitTimeoutMsg:
@@ -303,17 +313,10 @@ func (d *DashboardV2) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tui.ClearMessageMsg:
 		d.message = ""
-		d.deleteConfirmPending = false
 
 	case tui.RefreshDashboardMsg:
 		d.loadData()
 		d.initList()
-
-	case profileDeletedMsg:
-		d.loadData()
-		d.initList()
-		d.message = fmt.Sprintf("Deleted '%s'", msg.name)
-		return d, tui.ClearMessageCmd(tui.MessageDisplayDuration)
 
 	case tui.ErrorMsg:
 		d.message = fmt.Sprintf("Error: %s", msg.Err.Error())
@@ -375,32 +378,6 @@ func (d *DashboardV2) handleSelection() tea.Cmd {
 	return nil
 }
 
-// deleteProfile deletes a profile by ID
-func (d *DashboardV2) deleteProfile(profileID string) tea.Cmd {
-	return func() tea.Msg {
-		if d.app.Storage() == nil {
-			return tui.ErrorMsg{Err: fmt.Errorf("storage not available")}
-		}
-
-		profile := d.app.Storage().GetProfile(profileID)
-		profileName := "profile"
-		if profile != nil {
-			profileName = profile.Name
-		}
-
-		if err := d.app.Storage().DeleteProfile(profileID); err != nil {
-			return tui.ErrorMsg{Err: err}
-		}
-
-		return profileDeletedMsg{name: profileName}
-	}
-}
-
-// profileDeletedMsg signals a profile was deleted
-type profileDeletedMsg struct {
-	name string
-}
-
 // View renders the dashboard screen
 func (d *DashboardV2) View() string {
 	var content strings.Builder
@@ -444,31 +421,39 @@ func (d *DashboardV2) View() string {
 func (d *DashboardV2) renderSyncStatus() string {
 	var status strings.Builder
 
-	// Last sync info
-	lastSyncStr := "Never"
-	if !d.lastSync.IsZero() {
-		lastSyncStr = formatTimeAgo(d.lastSync)
-	}
-	status.WriteString(d.styles.Muted.Render("Last Sync: "))
-	status.WriteString(lastSyncStr)
-	status.WriteString("\n")
-
-	// Stats
-	if d.stats.TotalSyncs > 0 {
-		status.WriteString(d.styles.Success.Render("●"))
-		status.WriteString(fmt.Sprintf(" %d repos synced   ", d.stats.TotalReposSynced()))
-
-		if d.pendingSync > 0 {
-			status.WriteString(d.styles.Warning.Render("●"))
-			status.WriteString(fmt.Sprintf(" %d pending   ", d.pendingSync))
-		}
-
-		if d.stats.TotalFailed > 0 {
-			status.WriteString(d.styles.Error.Render("○"))
-			status.WriteString(fmt.Sprintf(" %d failed", d.stats.TotalFailed))
-		}
+	if len(d.profiles) == 0 {
+		status.WriteString(d.styles.Muted.Render("No profiles configured. Create a sync profile to get started!"))
 	} else {
-		status.WriteString(d.styles.Muted.Render("No sync history yet. Create a sync profile to get started!"))
+		// Profile count
+		status.WriteString(d.styles.Success.Render("●"))
+		profileWord := "profile"
+		if len(d.profiles) != 1 {
+			profileWord = "profiles"
+		}
+		status.WriteString(fmt.Sprintf(" %d %s", len(d.profiles), profileWord))
+
+		// Pending count
+		if d.pendingSync > 0 {
+			status.WriteString("   ")
+			status.WriteString(d.styles.Warning.Render("●"))
+			status.WriteString(fmt.Sprintf(" %d pending", d.pendingSync))
+		}
+
+		// Archived count (repos preserved locally but no longer on remote)
+		if d.archivedCount > 0 {
+			status.WriteString("   ")
+			status.WriteString(d.styles.Info.Render("●"))
+			status.WriteString(fmt.Sprintf(" %d archived", d.archivedCount))
+		}
+
+		// Last sync info
+		status.WriteString("\n")
+		status.WriteString(d.styles.Muted.Render("Last Sync: "))
+		if d.lastSync.IsZero() {
+			status.WriteString("Never")
+		} else {
+			status.WriteString(formatTimeAgo(d.lastSync))
+		}
 	}
 
 	boxStyle := d.styles.Box.Width(d.width - 12)

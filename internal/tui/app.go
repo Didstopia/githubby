@@ -23,6 +23,7 @@ const (
 	ScreenSyncProgress
 	ScreenClean
 	ScreenSettings
+	ScreenConfirmDelete
 	// Legacy screens (kept for compatibility during transition)
 	ScreenRepos
 )
@@ -65,6 +66,10 @@ type App struct {
 	// Selected profile(s) for sync
 	selectedProfile  *state.SyncProfile
 	profilesToSync   []*state.SyncProfile
+
+	// Profile deletion state
+	deleteProfileID   string
+	deleteProfileName string
 
 	// Terminal dimensions
 	width  int
@@ -247,6 +252,11 @@ func (a *App) SetProfilesToSync(profiles []*state.SyncProfile) {
 	a.profilesToSync = profiles
 }
 
+// DeleteProfileInfo returns the profile ID and name for deletion confirmation
+func (a *App) DeleteProfileInfo() (string, string) {
+	return a.deleteProfileID, a.deleteProfileName
+}
+
 // Width returns the terminal width
 func (a *App) Width() int {
 	return a.width
@@ -308,6 +318,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Token != "" {
 				a.ghClient = github.NewClient(msg.Token)
 			}
+			// Mark onboarding as complete
+			if a.storage != nil {
+				_ = a.storage.SetOnboardingComplete(true)
+			}
 			// Transition to dashboard, clearing the screen stack
 			return a, a.ResetToScreen(ScreenDashboard)
 		}
@@ -365,6 +379,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.PushScreen(ScreenSyncProgress)
 			}
 		}
+
+	case DeleteProfileRequestMsg:
+		// Show confirmation screen for profile deletion
+		delete(a.screens, ScreenConfirmDelete)
+		// Store profile info for the confirmation screen
+		a.deleteProfileID = msg.ProfileID
+		a.deleteProfileName = msg.ProfileName
+		return a, a.PushScreen(ScreenConfirmDelete)
+
+	case DeleteProfileConfirmedMsg:
+		// Actually delete the profile
+		if a.storage != nil {
+			if err := a.storage.DeleteProfile(msg.ProfileID); err != nil {
+				a.err = err
+			}
+		}
+		// Pop back to dashboard and refresh
+		cmds = append(cmds, a.PopScreen())
+		cmds = append(cmds, RefreshDashboardCmd())
+		return a, tea.Batch(cmds...)
+
+	case DeleteProfileCancelledMsg:
+		// Just pop back to dashboard
+		return a, a.PopScreen()
 	}
 
 	// Update current screen
@@ -496,10 +534,18 @@ func joinWithSeparator(items []string, sep string) string {
 func RunApp(ctx context.Context, opts ...AppOption) error {
 	app := NewApp(opts...)
 
-	// Determine initial screen based on auth state
+	// Determine initial screen based on auth state AND config completeness
+	// Config is "complete" if at least one profile exists
 	startScreen := ScreenOnboarding
 	if app.isAuthenticated {
-		startScreen = ScreenDashboard
+		hasProfiles := false
+		if app.storage != nil {
+			hasProfiles = len(app.storage.GetProfiles()) > 0
+		}
+		if hasProfiles {
+			startScreen = ScreenDashboard
+		}
+		// If authenticated but no profiles, stay on onboarding
 	}
 	app.currentScreen = startScreen
 
@@ -511,10 +557,18 @@ func RunApp(ctx context.Context, opts ...AppOption) error {
 
 // RunAppInstance runs an existing App instance
 func RunAppInstance(ctx context.Context, app *App) error {
-	// Determine initial screen based on auth state
+	// Determine initial screen based on auth state AND config completeness
+	// Config is "complete" if at least one profile exists
 	startScreen := ScreenOnboarding
 	if app.isAuthenticated {
-		startScreen = ScreenDashboard
+		hasProfiles := false
+		if app.storage != nil {
+			hasProfiles = len(app.storage.GetProfiles()) > 0
+		}
+		if hasProfiles {
+			startScreen = ScreenDashboard
+		}
+		// If authenticated but no profiles, stay on onboarding
 	}
 	app.currentScreen = startScreen
 

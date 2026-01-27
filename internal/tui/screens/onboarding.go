@@ -95,6 +95,15 @@ func WithEmbeddedMode() OnboardingOption {
 	}
 }
 
+// WithSkipToSyncConfig skips auth steps and goes directly to sync config
+// Used when auth is already complete but onboarding wasn't finished
+func WithSkipToSyncConfig(username string) OnboardingOption {
+	return func(o *Onboarding) {
+		o.step = StepSyncConfig
+		o.username = username
+	}
+}
+
 // NewOnboarding creates a new onboarding screen
 func NewOnboarding(ctx context.Context, opts ...OnboardingOption) *Onboarding {
 	s := spinner.New()
@@ -153,7 +162,12 @@ func (o *Onboarding) initForms() {
 		),
 	).WithTheme(huh.ThemeCharm())
 
-	// Sync config form - values are pre-filled before this form is shown
+	// Sync config form - initialized separately since values need to be set first
+	o.initSyncConfigForm()
+}
+
+// initSyncConfigForm creates the sync config form with current values
+func (o *Onboarding) initSyncConfigForm() {
 	o.syncConfigForm = huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -183,6 +197,13 @@ func (o *Onboarding) ShortHelp() []key.Binding {
 
 // Init initializes the onboarding screen
 func (o *Onboarding) Init() tea.Cmd {
+	// If starting at sync config step (skipped auth), set defaults and recreate form
+	if o.step == StepSyncConfig {
+		o.setSyncConfigDefaults()
+		o.initSyncConfigForm() // Recreate form with populated values
+		return o.syncConfigForm.Init()
+	}
+
 	return tea.Batch(
 		o.authForm.Init(),
 		o.oauthSpinner.Tick,

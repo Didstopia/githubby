@@ -34,11 +34,12 @@ type SyncProgressScreen struct {
 	spinner    spinner.Model
 
 	// Statistics
-	cloned    int
-	updated   int
-	skipped   int
-	failed    int
-	startTime time.Time
+	cloned     int
+	updated    int
+	skipped    int
+	failed     int
+	archived   int
+	startTime  time.Time
 	totalRepos int
 
 	// Dimensions
@@ -139,16 +140,33 @@ func (s *SyncProgressScreen) Init() tea.Cmd {
 	s.startTime = time.Now()
 
 	// Initialize items from all profiles' selected repos
+	// For "all repos" profiles (SyncAllRepos=true or empty SelectedRepos),
+	// we don't have a count upfront - it will be fetched from the API
 	s.items = []syncProgressItem{}
+	hasAllReposProfile := false
 	for _, profile := range s.profiles {
-		for _, repoName := range profile.SelectedRepos {
+		if profile.SyncAllRepos || len(profile.SelectedRepos) == 0 {
+			hasAllReposProfile = true
+			// Add a placeholder item for "all repos" profiles
 			s.items = append(s.items, syncProgressItem{
-				name:   repoName,
+				name:   fmt.Sprintf("%s/%s (all repos)", profile.Type, profile.Source),
 				status: "pending",
 			})
+		} else {
+			for _, repoName := range profile.SelectedRepos {
+				s.items = append(s.items, syncProgressItem{
+					name:   repoName,
+					status: "pending",
+				})
+			}
 		}
 	}
-	s.totalRepos = len(s.items)
+	// If any profile syncs all repos, we can't know the total upfront
+	if hasAllReposProfile {
+		s.totalRepos = 0 // Will be determined during sync
+	} else {
+		s.totalRepos = len(s.items)
+	}
 
 	s.loading = false
 	s.syncing = true
@@ -227,6 +245,7 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.updated = msg.updated
 		s.skipped = msg.skipped
 		s.failed = msg.failed
+		s.archived = msg.archived
 		s.err = msg.err
 		// Profile updates are done in startSync
 	}
@@ -275,9 +294,19 @@ func (s *SyncProgressScreen) View() string {
 	if s.syncing {
 		content.WriteString(s.spinner.View())
 		if len(s.profiles) > 1 {
-			content.WriteString(fmt.Sprintf(" Syncing %d repositories across %d profiles...", total, len(s.profiles)))
+			if total > 0 {
+				content.WriteString(fmt.Sprintf(" Syncing %d repositories across %d profiles...", total, len(s.profiles)))
+			} else {
+				content.WriteString(fmt.Sprintf(" Syncing all repositories across %d profiles...", len(s.profiles)))
+			}
 		} else if s.profile != nil {
-			content.WriteString(fmt.Sprintf(" Syncing %d repositories to %s...", total, s.profile.TargetDir))
+			if total > 0 {
+				content.WriteString(fmt.Sprintf(" Syncing %d repositories to %s...", total, s.profile.TargetDir))
+			} else if s.profile.SyncAllRepos {
+				content.WriteString(fmt.Sprintf(" Syncing all %s/%s repositories to %s...", s.profile.Type, s.profile.Source, s.profile.TargetDir))
+			} else {
+				content.WriteString(fmt.Sprintf(" Syncing repositories to %s...", s.profile.TargetDir))
+			}
 		} else {
 			content.WriteString(fmt.Sprintf(" Syncing %d repositories...", total))
 		}
@@ -288,12 +317,17 @@ func (s *SyncProgressScreen) View() string {
 
 	// Results (when complete)
 	if s.complete {
+		// Use actual done count if total was unknown (0)
+		actualTotal := total
+		if actualTotal == 0 {
+			actualTotal = done
+		}
 		if s.err != nil {
 			content.WriteString(s.styles.Error.Render("Sync completed with errors: " + s.err.Error()))
 		} else if s.failed > 0 {
-			content.WriteString(s.styles.Warning.Render(fmt.Sprintf("Synced %d repositories with %d failures", total, s.failed)))
+			content.WriteString(s.styles.Warning.Render(fmt.Sprintf("Synced %d repositories with %d failures", actualTotal, s.failed)))
 		} else {
-			content.WriteString(s.styles.Success.Render(fmt.Sprintf("Successfully synced %d repositories!", total)))
+			content.WriteString(s.styles.Success.Render(fmt.Sprintf("Successfully synced %d repositories!", actualTotal)))
 		}
 		content.WriteString("\n\n")
 
@@ -312,7 +346,10 @@ func (s *SyncProgressScreen) View() string {
 		if s.failed > 0 {
 			content.WriteString(fmt.Sprintf("  %s Failed: %d\n", s.styles.Error.Render("●"), s.failed))
 		}
-		if s.cloned == 0 && s.updated == 0 && s.skipped == 0 && s.failed == 0 {
+		if s.archived > 0 {
+			content.WriteString(fmt.Sprintf("  %s Archived: %d (preserved locally, no longer on remote)\n", s.styles.Info.Render("●"), s.archived))
+		}
+		if s.cloned == 0 && s.updated == 0 && s.skipped == 0 && s.failed == 0 && s.archived == 0 {
 			content.WriteString(s.styles.Muted.Render("  No changes - all repositories up to date\n"))
 		}
 
@@ -357,37 +394,64 @@ func (s *SyncProgressScreen) startSync() tea.Cmd {
 			return profileSyncCompleteMsg{err: fmt.Errorf("git not available: %w", err)}
 		}
 
-		var cloned, updated, skipped, failed int
+		var cloned, updated, skipped, failed, archived int
 
 		// Sync each profile
 		for _, profile := range s.profiles {
 			opts := &sync.Options{
 				Target:         profile.TargetDir,
 				IncludePrivate: profile.IncludePrivate,
+				Include:        profile.IncludeFilter,
+				Exclude:        profile.ExcludeFilter,
 			}
 
 			syncer := sync.New(client, gitOps, opts)
 
-			// Sync each repo in this profile
-			for _, repoFullName := range profile.SelectedRepos {
-				parts := strings.SplitN(repoFullName, "/", 2)
-				if len(parts) != 2 {
-					failed++
-					continue
-				}
-				owner, repo := parts[0], parts[1]
+			// Check if this is an "all repos" profile
+			// SyncAllRepos=true or empty SelectedRepos (for backwards compatibility)
+			if profile.SyncAllRepos || len(profile.SelectedRepos) == 0 {
+				// Use API to fetch all current repos
+				var result *sync.Result
+				var syncErr error
 
-				result, err := syncer.SyncRepo(s.ctx, owner, repo)
-				if err != nil {
-					failed++
-					continue
+				if profile.Type == "org" {
+					result, syncErr = syncer.SyncOrgRepos(s.ctx, profile.Source)
+				} else {
+					result, syncErr = syncer.SyncUserRepos(s.ctx, profile.Source)
 				}
 
-				if result != nil {
+				if syncErr != nil {
+					failed++
+				} else if result != nil {
 					cloned += len(result.Cloned)
 					updated += len(result.Updated)
 					skipped += len(result.Skipped)
 					failed += len(result.Failed)
+					archived += len(result.Archived)
+				}
+			} else {
+				// Sync specific repos from profile.SelectedRepos
+				for _, repoFullName := range profile.SelectedRepos {
+					parts := strings.SplitN(repoFullName, "/", 2)
+					if len(parts) != 2 {
+						failed++
+						continue
+					}
+					owner, repo := parts[0], parts[1]
+
+					result, err := syncer.SyncRepo(s.ctx, owner, repo)
+					if err != nil {
+						failed++
+						continue
+					}
+
+					if result != nil {
+						cloned += len(result.Cloned)
+						updated += len(result.Updated)
+						skipped += len(result.Skipped)
+						failed += len(result.Failed)
+						archived += len(result.Archived)
+					}
 				}
 			}
 
@@ -404,19 +468,21 @@ func (s *SyncProgressScreen) startSync() tea.Cmd {
 		}
 
 		return profileSyncCompleteMsg{
-			cloned:  cloned,
-			updated: updated,
-			skipped: skipped,
-			failed:  failed,
+			cloned:   cloned,
+			updated:  updated,
+			skipped:  skipped,
+			failed:   failed,
+			archived: archived,
 		}
 	}
 }
 
 // Message types
 type profileSyncCompleteMsg struct {
-	cloned  int
-	updated int
-	skipped int
-	failed  int
-	err     error
+	cloned   int
+	updated  int
+	skipped  int
+	failed   int
+	archived int
+	err      error
 }

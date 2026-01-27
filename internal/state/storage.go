@@ -246,3 +246,19 @@ func (s *Storage) GetRecentSyncHistory(n int) []*SyncRecord {
 	copy(result, history[len(history)-n:])
 	return result
 }
+
+// IsOnboardingComplete returns whether onboarding has been completed
+func (s *Storage) IsOnboardingComplete() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.OnboardingComplete
+}
+
+// SetOnboardingComplete marks onboarding as complete and saves
+func (s *Storage) SetOnboardingComplete(complete bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.state.OnboardingComplete = complete
+	return s.saveInternal()
+}
