@@ -24,14 +24,21 @@ type LFS struct {
 	LFSPath string
 	// Git is the underlying git instance
 	Git *Git
+	// Quiet suppresses stdout/stderr output (inherited from Git)
+	Quiet bool
 }
 
 // NewLFS creates a new LFS instance
 func NewLFS(git *Git) *LFS {
 	lfsPath, _ := exec.LookPath("git-lfs")
+	quiet := false
+	if git != nil {
+		quiet = git.Quiet
+	}
 	return &LFS{
 		LFSPath: lfsPath,
 		Git:     git,
+		Quiet:   quiet,
 	}
 }
 
@@ -87,8 +94,10 @@ func (l *LFS) Install(ctx context.Context) error {
 		return fmt.Errorf("%w: unsupported operating system: %s", ErrLFSInstallFail, runtime.GOOS)
 	}
 
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if !l.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%w: %v", ErrLFSInstallFail, err)
@@ -110,8 +119,10 @@ func (l *LFS) Initialize(ctx context.Context) error {
 	}
 
 	cmd := exec.CommandContext(ctx, l.Git.GitPath, "lfs", "install")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if !l.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 
@@ -147,8 +158,10 @@ func (l *LFS) Pull(ctx context.Context, repoDir string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, l.Git.GitPath, "-C", repoDir, "lfs", "pull")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if !l.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 
@@ -159,19 +172,25 @@ func (l *LFS) Fetch(ctx context.Context, repoDir string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, l.Git.GitPath, "-C", repoDir, "lfs", "fetch")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if !l.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 
 // EnsureLFS ensures Git LFS is installed and configured
 func (l *LFS) EnsureLFS(ctx context.Context) error {
 	if !l.IsInstalled() {
-		fmt.Println("Git LFS is not installed. Attempting to install...")
+		if !l.Quiet {
+			fmt.Println("Git LFS is not installed. Attempting to install...")
+		}
 		if err := l.Install(ctx); err != nil {
 			return err
 		}
-		fmt.Println("Git LFS installed successfully.")
+		if !l.Quiet {
+			fmt.Println("Git LFS installed successfully.")
+		}
 	}
 
 	return l.Initialize(ctx)
