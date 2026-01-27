@@ -1,9 +1,34 @@
-[![CI](https://github.com/Didstopia/githubby/actions/workflows/ci.yml/badge.svg)](https://github.com/Didstopia/githubby/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Didstopia/githubby)](https://goreportcard.com/report/github.com/Didstopia/githubby)
-
 # GitHubby
 
+[![CI](https://github.com/Didstopia/githubby/actions/workflows/ci.yml/badge.svg)](https://github.com/Didstopia/githubby/actions/workflows/ci.yml)
+[![Security](https://github.com/Didstopia/githubby/actions/workflows/security.yml/badge.svg)](https://github.com/Didstopia/githubby/actions/workflows/security.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Didstopia/githubby)](https://goreportcard.com/report/github.com/Didstopia/githubby)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/Didstopia/githubby)](https://github.com/Didstopia/githubby)
+[![License](https://img.shields.io/github/license/Didstopia/githubby)](https://github.com/Didstopia/githubby/blob/master/LICENSE)
+[![Release](https://img.shields.io/github/v/release/Didstopia/githubby)](https://github.com/Didstopia/githubby/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Didstopia/githubby/total)](https://github.com/Didstopia/githubby/releases)
+
 A multi-purpose CLI utility for interacting with GitHub. Sync repositories locally with Git LFS support, clean up old releases, and more.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Authentication](#authentication)
+  - [Global Flags](#global-flags)
+  - [Sync Command](#sync-command)
+  - [Clean Command](#clean-command)
+  - [Version Command](#version-command)
+- [Configuration](#configuration)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
 
 ## Features
 
@@ -14,25 +39,46 @@ A multi-purpose CLI utility for interacting with GitHub. Sync repositories local
 - **Release cleanup** - Filter and remove old GitHub releases
 - **Cross-platform** - Works on Linux, macOS, and Windows
 
+---
+
+## Quick Start
+
+Get up and running in three steps:
+
+```bash
+# 1. Install GitHubby
+go install github.com/Didstopia/githubby@latest
+
+# 2. Authenticate with GitHub
+githubby login
+
+# 3. Sync your repositories
+githubby sync --user <your-username> --target ~/repos
+```
+
+---
+
 ## Installation
 
-### From releases
+### From Releases
 
 Download the latest release for your platform from the [releases page](https://github.com/Didstopia/githubby/releases).
 
-### From source
+### From Source
 
 ```bash
 go install github.com/Didstopia/githubby@latest
 ```
 
-### Build from source
+### Build from Source
 
 ```bash
 git clone https://github.com/Didstopia/githubby.git
 cd githubby
 make build
 ```
+
+---
 
 ## Usage
 
@@ -145,6 +191,8 @@ Print version information.
 githubby version
 ```
 
+---
+
 ## Configuration
 
 GitHubby looks for a configuration file at `~/.githubby.yaml`. Command line flags override config file values.
@@ -183,11 +231,13 @@ You can set the token via environment variable:
 export GITHUB_TOKEN=ghp_your_token_here
 ```
 
+---
+
 ## Development
 
 ### Prerequisites
 
-- Go 1.22 or later
+- Go 1.23 or later
 - Git
 
 ### Build
@@ -229,6 +279,22 @@ go test -v ./...
 go test -v ./internal/github/...
 ```
 
+---
+
+## Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+Please ensure your code passes all tests and linting before submitting.
+
+---
+
 ## License
 
-See [LICENSE](LICENSE).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
