@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Didstopia/githubby/internal/auth"
 	gherrors "github.com/Didstopia/githubby/internal/errors"
 	gitpkg "github.com/Didstopia/githubby/internal/git"
 	"github.com/Didstopia/githubby/internal/github"
@@ -77,10 +78,12 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("only one of --user or --org can be specified")
 	}
 
-	// Validate token
-	if token == "" {
-		return gherrors.ErrMissingToken
+	// Get token using auth resolution (flag > env > stored)
+	resolvedToken, err := auth.GetToken(ctx, token, "")
+	if err != nil || resolvedToken.Token == "" {
+		return gherrors.NewAuthError()
 	}
+	authToken := resolvedToken.Token
 
 	// Initialize git
 	git, err := gitpkg.New()
@@ -89,7 +92,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create GitHub client
-	ghClient := github.NewClient(token)
+	ghClient := github.NewClient(authToken)
 
 	// Create sync options
 	opts := &sync.Options{

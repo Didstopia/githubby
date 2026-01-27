@@ -9,6 +9,7 @@ import (
 	gh "github.com/google/go-github/v68/github"
 	"github.com/spf13/cobra"
 
+	"github.com/Didstopia/githubby/internal/auth"
 	gherrors "github.com/Didstopia/githubby/internal/errors"
 	"github.com/Didstopia/githubby/internal/github"
 	"github.com/Didstopia/githubby/pkg/util"
@@ -56,10 +57,12 @@ func runClean(cmd *cobra.Command, args []string) error {
 		return gherrors.ErrMissingFilter
 	}
 
-	// Validate token
-	if token == "" {
-		return gherrors.ErrMissingToken
+	// Get token using auth resolution (flag > env > stored)
+	resolvedToken, err := auth.GetToken(ctx, token, "")
+	if err != nil || resolvedToken.Token == "" {
+		return gherrors.NewAuthError()
 	}
+	authToken := resolvedToken.Token
 
 	// Validate repository
 	owner, repo, err := util.ValidateGitHubRepository(repository)
@@ -72,7 +75,7 @@ func runClean(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create GitHub client
-	client := github.NewClient(token)
+	client := github.NewClient(authToken)
 
 	// Notify user
 	if !verbose {
