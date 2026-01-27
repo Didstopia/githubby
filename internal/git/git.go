@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Common errors
@@ -207,6 +208,17 @@ func (g *Git) GetRemoteBranchSHA(ctx context.Context, repoDir, remote, branch st
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// GetLastFetchTime returns the modification time of .git/FETCH_HEAD, which indicates
+// when the repository was last fetched. Returns zero time if never fetched.
+func (g *Git) GetLastFetchTime(repoDir string) (time.Time, error) {
+	fetchHeadPath := filepath.Join(repoDir, ".git", "FETCH_HEAD")
+	info, err := os.Stat(fetchHeadPath)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return info.ModTime(), nil
 }
 
 // GetDefaultBranch returns the default branch of a repository

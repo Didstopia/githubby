@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	gh "github.com/google/go-github/v68/github"
 
@@ -516,25 +517,16 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 // pullRepo pulls updates for an existing repository.
 // Returns ProgressUpToDate if already current, ProgressUpdated if pulled, or error.
 func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath string) (ProgressStatus, error) {
-	// Fast check: compare local remote-tracking branch with GitHub's HEAD
-	// We compare origin/<branch> (not local HEAD) because git fetch only updates
-	// remote-tracking branches, not the local HEAD
-	if s.ghClient != nil {
-		defaultBranch := repo.GetDefaultBranch()
-		if defaultBranch == "" {
-			defaultBranch = "main"
-		}
-
-		// Get the SHA of our local remote-tracking branch (e.g., origin/main)
-		localSHA, err := s.git.GetRemoteBranchSHA(ctx, localPath, "origin", defaultBranch)
-		if err == nil {
-			// Get the current SHA from GitHub
-			remoteSHA, err := s.ghClient.GetBranchRef(ctx, repo.GetOwner().GetLogin(), repo.GetName(), defaultBranch)
-			if err == nil && localSHA == remoteSHA {
-				// Already up-to-date, skip the fetch
+	// Fast check: compare repo's pushed_at timestamp with our last fetch time
+	// This works for ALL branches, not just the default branch
+	if repo.PushedAt != nil && !repo.PushedAt.IsZero() {
+		lastFetch, err := s.git.GetLastFetchTime(localPath)
+		if err == nil && !lastFetch.IsZero() {
+			// Add a small buffer (1 second) to handle timing edge cases
+			if repo.PushedAt.Time.Before(lastFetch.Add(-time.Second)) || repo.PushedAt.Time.Equal(lastFetch) {
+				// No pushes since our last fetch, we're up-to-date
 				return ProgressUpToDate, nil
 			}
-			// On any error, fall through to normal fetch
 		}
 		// On any error, fall through to normal fetch
 	}

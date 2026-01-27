@@ -520,6 +520,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 		defaultBranch string
 		cloneURL      string
 		isPrivate     bool
+		pushedAt      *gh.Timestamp
 		profile       *state.SyncProfile
 	}
 	var allRepos []repoToSync
@@ -559,6 +560,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 					defaultBranch: r.GetDefaultBranch(),
 					cloneURL:      r.GetCloneURL(),
 					isPrivate:     r.GetPrivate(),
+					pushedAt:      r.PushedAt,
 					profile:       profile,
 				})
 			}
@@ -585,6 +587,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 							defaultBranch: repoData.GetDefaultBranch(),
 							cloneURL:      repoData.GetCloneURL(),
 							isPrivate:     repoData.GetPrivate(),
+							pushedAt:      repoData.PushedAt,
 							profile:       profile,
 						})
 					}
@@ -640,6 +643,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 					Owner:         &gh.User{Login: gh.Ptr(r.owner)},
 					CloneURL:      gh.Ptr(r.cloneURL),
 					Private:       gh.Ptr(r.isPrivate),
+					PushedAt:      r.pushedAt,
 				}
 				result, err := syncer.SyncRepoWithData(s.ctx, repo)
 
