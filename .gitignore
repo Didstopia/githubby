@@ -1,6 +1,5 @@
 ### Claude ###
 .claude/
-CLAUDE.md
 
 ### Code Coverage ###
 coverage.txt
@@ -13,14 +12,16 @@ coverage.txt
 *.dylib
 
 ### Go Vendor Packages ###
-#vendor/
+vendor/
 
-# Other
+# Build outputs
 /go/
 /build/
 /test.sh
+/dist/
 
-# Binaries for Go
+# Binary
+/githubby
 /debug
 /release
 /debug/

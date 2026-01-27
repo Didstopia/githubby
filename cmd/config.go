@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -73,10 +72,7 @@ func writeDefaultConfig() error {
 
 	// Check if the config file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// Create a new config file with the default options
-		if _, err := os.Create(path); err != nil {
-			return err
-		}
+		// Create default config
 		config := yamlConfig{
 			Verbose:     false,
 			DryRun:      false,
@@ -89,7 +85,8 @@ func writeDefaultConfig() error {
 		if err != nil {
 			return err
 		}
-		if err := ioutil.WriteFile(path, data, os.ModePerm); err != nil {
+		// Write config file with secure permissions (0600 = owner read/write only)
+		if err := os.WriteFile(path, data, 0600); err != nil {
 			return err
 		}
 	}

@@ -3,8 +3,10 @@ package ghapi
 
 import (
 	"context"
+	"fmt"
+	"net/url"
 
-	"github.com/google/go-github/v24/github"
+	"github.com/google/go-github/v68/github"
 	"golang.org/x/oauth2"
 )
 
@@ -84,13 +86,14 @@ func (githubClient *GitHub) deleteRelease(release *github.RepositoryRelease) err
 }
 
 func (githubClient *GitHub) deleteTag(owner string, repo string, release *github.RepositoryRelease) error {
-	// Construct the API endpoint url
-	url := "https://api.github.com/repos/" + owner + "/" + repo + "/git/refs/tags/" + *release.TagName
-
-	//log.Println("Deleting tag:", url)
+	// Construct the API endpoint URL using proper path encoding for security
+	tagURL := fmt.Sprintf("repos/%s/%s/git/refs/tags/%s",
+		url.PathEscape(owner),
+		url.PathEscape(repo),
+		url.PathEscape(*release.TagName))
 
 	// Create the tag deletion request
-	req, reqErr := githubClient.client.NewRequest("DELETE", url, nil)
+	req, reqErr := githubClient.client.NewRequest("DELETE", tagURL, nil)
 	if reqErr != nil {
 		return reqErr
 	}
