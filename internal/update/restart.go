@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Restart replaces the current process with a new instance of the application.
@@ -37,8 +38,9 @@ func resolveExecutablePath() (string, error) {
 		return arg0, nil
 	}
 
-	// If it contains a path separator, it's relative - make it absolute
-	if filepath.Dir(arg0) != "." {
+	// If it contains any path separator (e.g., "./binary" or "subdir/binary"),
+	// treat it as a relative path and make it absolute
+	if strings.Contains(arg0, string(filepath.Separator)) || strings.Contains(arg0, "/") {
 		return filepath.Abs(arg0)
 	}
 
