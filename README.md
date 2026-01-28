@@ -14,18 +14,20 @@ A powerful CLI and TUI utility for syncing GitHub repositories locally. Features
 
 ## Quick Start
 
-```bash
-# Install
-go install github.com/Didstopia/githubby@latest
+**1. Download** the latest release for your platform:
 
-# Run - the setup wizard guides you through everything
-githubby
+> **[Download GitHubby](https://github.com/Didstopia/githubby/releases/latest)** - Linux, macOS, Windows (amd64 & arm64)
+
+**2. Run it:**
+
+```bash
+./githubby
 ```
 
-That's it! The interactive wizard will:
-1. Authenticate with GitHub (opens browser for OAuth)
-2. Configure your sync settings
-3. Launch the dashboard
+That's it! The interactive setup wizard will guide you through:
+1. GitHub authentication (opens browser for OAuth)
+2. Sync configuration
+3. Dashboard
 
 ---
 
@@ -44,11 +46,22 @@ That's it! The interactive wizard will:
 
 ## Installation
 
-### Download Binary
+### Download Binary (Recommended)
 
-Download the latest release for your platform from the [releases page](https://github.com/Didstopia/githubby/releases).
+Download the latest release for your platform from the **[releases page](https://github.com/Didstopia/githubby/releases/latest)**:
+
+| Platform | Architecture | Download |
+|----------|--------------|----------|
+| Linux | amd64 | `githubby_*_linux_amd64.tar.gz` |
+| Linux | arm64 | `githubby_*_linux_arm64.tar.gz` |
+| macOS | Intel | `githubby_*_darwin_amd64.tar.gz` |
+| macOS | Apple Silicon | `githubby_*_darwin_arm64.tar.gz` |
+| Windows | amd64 | `githubby_*_windows_amd64.zip` |
+| Windows | arm64 | `githubby_*_windows_arm64.zip` |
 
 ### Go Install
+
+If you have Go installed:
 
 ```bash
 go install github.com/Didstopia/githubby@latest
