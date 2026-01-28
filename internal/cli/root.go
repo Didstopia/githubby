@@ -17,6 +17,9 @@ import (
 	"github.com/Didstopia/githubby/internal/update"
 )
 
+// autoUpdateEnabled controls whether auto-update on launch is enabled
+var autoUpdateEnabled = true
+
 // Version information (set via ldflags)
 var (
 	Version   = "dev"
@@ -113,7 +116,7 @@ func Execute() {
 	// Store context for subcommands
 	rootCmd.SetContext(ctx)
 
-	// Check if running with no arguments - launch TUI
+	// Check if running with no arguments - launch TUI (TUI handles its own update)
 	if len(os.Args) == 1 {
 		if err := RunTUI(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -122,7 +125,15 @@ func Execute() {
 		return
 	}
 
-	// Start background update check for non-update CLI commands
+	// Perform blocking auto-update check for CLI commands
+	if autoUpdateEnabled && shouldAutoUpdate() {
+		if restarted := checkAndAutoUpdate(ctx); restarted {
+			// If we restarted, execution continues in the new process
+			return
+		}
+	}
+
+	// Start background update check for non-update CLI commands (fallback notification)
 	updateChan := startBackgroundUpdateCheck(ctx)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -132,6 +143,72 @@ func Execute() {
 
 	// Show update notification if available (after command completes)
 	showUpdateNotification(updateChan)
+}
+
+// shouldAutoUpdate returns true if auto-update should be performed for this command
+func shouldAutoUpdate() bool {
+	// Skip for dev builds
+	if update.IsDev(Version) {
+		return false
+	}
+
+	// Skip for certain commands
+	if len(os.Args) > 1 {
+		cmd := os.Args[1]
+		switch cmd {
+		case "update", "version", "help", "--help", "-h", "--version", "-v":
+			return false
+		case "interactive", "tui", "ui":
+			// TUI handles its own update
+			return false
+		}
+	}
+
+	return true
+}
+
+// checkAndAutoUpdate checks for updates and performs auto-update if available
+// Returns true if the app was restarted (caller should exit)
+func checkAndAutoUpdate(ctx context.Context) bool {
+	fmt.Println("Checking for updates...")
+
+	// Create a timeout context for the update check
+	checkCtx, checkCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer checkCancel()
+
+	result, err := update.CheckForUpdate(checkCtx, Version)
+	if err != nil {
+		// Silent failure, continue with command
+		return false
+	}
+
+	if result == nil || !result.Available {
+		return false
+	}
+
+	fmt.Printf("Updating to v%s...\n", result.LatestVersion)
+
+	// Perform the update with a longer timeout
+	updateCtx, updateCancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer updateCancel()
+
+	if _, err := update.Update(updateCtx, Version); err != nil {
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+		fmt.Println("Continuing with current version...")
+		return false
+	}
+
+	fmt.Println("Update complete! Restarting...")
+	time.Sleep(500 * time.Millisecond) // Brief pause for user to see message
+
+	if err := update.Restart(); err != nil {
+		fmt.Fprintf(os.Stderr, "Restart failed: %v\n", err)
+		fmt.Println("Please restart the application manually.")
+		return false
+	}
+
+	// Restart should not return, but if it does, indicate we tried
+	return true
 }
 
 // startBackgroundUpdateCheck starts a background goroutine to check for updates

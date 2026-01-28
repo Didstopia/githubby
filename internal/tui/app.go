@@ -30,6 +30,24 @@ const (
 	ScreenRepos
 )
 
+// UpdatePhase represents the current phase of the startup update process
+type UpdatePhase int
+
+const (
+	// UpdatePhaseNone means no startup update in progress
+	UpdatePhaseNone UpdatePhase = iota
+	// UpdatePhaseChecking means checking for updates
+	UpdatePhaseChecking
+	// UpdatePhaseAvailable means update found, about to download
+	UpdatePhaseAvailable
+	// UpdatePhaseDownloading means downloading/installing update
+	UpdatePhaseDownloading
+	// UpdatePhaseComplete means update done, about to restart
+	UpdatePhaseComplete
+	// UpdatePhaseError means an error occurred during update
+	UpdatePhaseError
+)
+
 // ScreenModel is the interface that all screens must implement
 type ScreenModel interface {
 	tea.Model
@@ -90,13 +108,19 @@ type App struct {
 	commit    string
 	buildDate string
 
-	// Update state
+	// Update state (runtime, optional)
 	updateAvailable  bool
 	latestVersion    string
 	updateConfirming bool
 	updateInProgress bool
 	updateComplete   bool
 	updateError      error
+
+	// Startup update state (blocking)
+	startupUpdatePhase   UpdatePhase
+	startupUpdateVersion string
+	startupUpdateError   error
+	updateStartTime      time.Time
 }
 
 // AppOption configures the App
@@ -293,6 +317,18 @@ func (a *App) Height() int {
 
 // Init initializes the app
 func (a *App) Init() tea.Cmd {
+	// For non-dev builds, start with blocking startup update check
+	if !update.IsDev(a.version) {
+		a.startupUpdatePhase = UpdatePhaseChecking
+		return a.checkForStartupUpdateCmd()
+	}
+
+	// Dev builds skip startup update and go straight to normal init
+	return a.initializeNormally()
+}
+
+// initializeNormally initializes the app after startup update check is complete
+func (a *App) initializeNormally() tea.Cmd {
 	var cmds []tea.Cmd
 
 	// Initialize the current screen
@@ -300,16 +336,67 @@ func (a *App) Init() tea.Cmd {
 		cmds = append(cmds, model.Init())
 	}
 
-	// Start background update check
+	// Start background update check (for runtime updates)
 	cmds = append(cmds, a.checkForUpdateCmd())
 
 	return tea.Batch(cmds...)
 }
 
+// checkForStartupUpdateCmd returns a command that checks for updates during startup (blocking)
+func (a *App) checkForStartupUpdateCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		result, err := update.CheckForUpdate(ctx, a.version)
+		if err != nil {
+			// On error, skip update and continue to normal app
+			return StartupUpdateNotNeededMsg{}
+		}
+
+		if result != nil && result.Available {
+			return StartupUpdateAvailableMsg{
+				CurrentVersion: result.CurrentVersion,
+				LatestVersion:  result.LatestVersion,
+			}
+		}
+
+		return StartupUpdateNotNeededMsg{}
+	}
+}
+
+// performStartupUpdateCmd returns a command that performs the startup update
+func (a *App) performStartupUpdateCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		result, err := update.Update(ctx, a.version)
+		if err != nil {
+			return StartupUpdateErrorMsg{Error: err}
+		}
+
+		return StartupUpdateCompleteMsg{NewVersion: result.LatestVersion}
+	}
+}
+
+// delayedRestartCmd returns a command that waits for minimum display time then restarts
+func (a *App) delayedRestartCmd(elapsed time.Duration) tea.Cmd {
+	const minDisplayTime = 2 * time.Second
+	if elapsed < minDisplayTime {
+		return tea.Tick(minDisplayTime-elapsed, func(time.Time) tea.Msg {
+			return StartupRestartMsg{}
+		})
+	}
+	return func() tea.Msg {
+		return StartupRestartMsg{}
+	}
+}
+
 // checkForUpdateCmd returns a command that checks for updates in the background
 func (a *App) checkForUpdateCmd() tea.Cmd {
 	// Skip for dev builds
-	if a.version == "" || a.version == "dev" {
+	if update.IsDev(a.version) {
 		return nil
 	}
 
@@ -358,6 +445,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// During startup update, block all keys except for handling update states
+		if a.startupUpdatePhase != UpdatePhaseNone {
+			// Allow window resize but block everything else
+			return a, nil
+		}
+
 		// Handle update confirmation keys
 		if a.updateConfirming {
 			switch msg.String() {
@@ -384,6 +477,53 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.updateConfirming = true
 			return a, nil
 		}
+
+	// Startup update messages (blocking flow)
+	case StartupUpdateNotNeededMsg:
+		// No update needed, continue to normal app initialization
+		a.startupUpdatePhase = UpdatePhaseNone
+		return a, a.initializeNormally()
+
+	case StartupUpdateAvailableMsg:
+		// Update available, start downloading
+		a.startupUpdatePhase = UpdatePhaseDownloading
+		a.startupUpdateVersion = msg.LatestVersion
+		a.updateStartTime = time.Now()
+		return a, a.performStartupUpdateCmd()
+
+	case StartupUpdateProgressMsg:
+		// Update download progress (for future use with progress reporting)
+		return a, nil
+
+	case StartupUpdateCompleteMsg:
+		// Update complete, prepare to restart
+		a.startupUpdatePhase = UpdatePhaseComplete
+		a.startupUpdateVersion = msg.NewVersion
+		elapsed := time.Since(a.updateStartTime)
+		return a, a.delayedRestartCmd(elapsed)
+
+	case StartupUpdateErrorMsg:
+		// Update failed, show error briefly then continue
+		a.startupUpdatePhase = UpdatePhaseError
+		a.startupUpdateError = msg.Error
+		// After 2 seconds, continue to normal app
+		return a, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+			return StartupUpdateNotNeededMsg{}
+		})
+
+	case StartupRestartMsg:
+		// Time to restart
+		if err := update.Restart(); err != nil {
+			// If restart fails, show error and continue
+			a.startupUpdatePhase = UpdatePhaseError
+			a.startupUpdateError = fmt.Errorf("restart failed: %w", err)
+			return a, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
+				return StartupUpdateNotNeededMsg{}
+			})
+		}
+		// Restart should not return, but if it does, quit
+		a.quitting = true
+		return a, tea.Quit
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
@@ -540,6 +680,11 @@ func (a *App) View() string {
 		return ""
 	}
 
+	// During startup update, render blocking modal
+	if a.startupUpdatePhase != UpdatePhaseNone {
+		return a.renderStartupUpdateModal()
+	}
+
 	// Get current screen view
 	var content string
 	if model := a.getOrCreateScreen(a.currentScreen); model != nil {
@@ -550,6 +695,85 @@ func (a *App) View() string {
 
 	// Render with header and footer
 	return a.renderWithChrome(content)
+}
+
+// renderStartupUpdateModal renders the blocking modal during startup update
+func (a *App) renderStartupUpdateModal() string {
+	var title, message string
+
+	switch a.startupUpdatePhase {
+	case UpdatePhaseChecking:
+		title = "Checking for updates..."
+		message = "Please wait"
+	case UpdatePhaseAvailable:
+		title = fmt.Sprintf("Update available: v%s", a.startupUpdateVersion)
+		message = "Preparing to update"
+	case UpdatePhaseDownloading:
+		title = fmt.Sprintf("Updating to v%s...", a.startupUpdateVersion)
+		message = "Please wait"
+	case UpdatePhaseComplete:
+		title = "Update complete!"
+		message = "Restarting..."
+	case UpdatePhaseError:
+		title = "Update failed"
+		if a.startupUpdateError != nil {
+			message = a.startupUpdateError.Error()
+		} else {
+			message = "Continuing with current version..."
+		}
+	default:
+		title = "Updating..."
+		message = "Please wait"
+	}
+
+	// Build the modal content
+	titleStyle := a.styles.BoxTitle.Bold(true)
+	messageStyle := a.styles.Muted
+
+	// Use different colors for different states
+	switch a.startupUpdatePhase {
+	case UpdatePhaseComplete:
+		titleStyle = titleStyle.Foreground(ColorSuccess)
+	case UpdatePhaseError:
+		titleStyle = titleStyle.Foreground(ColorError)
+	default:
+		titleStyle = titleStyle.Foreground(ColorPrimary)
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Center,
+		titleStyle.Render(title),
+		"",
+		messageStyle.Render(message),
+	)
+
+	// Create the modal box
+	modalStyle := a.styles.BoxHighlighted.
+		Width(40).
+		Align(lipgloss.Center)
+
+	modal := modalStyle.Render(content)
+
+	// Center the modal on screen
+	modalWidth := lipgloss.Width(modal)
+	modalHeight := lipgloss.Height(modal)
+
+	horizontalPadding := (a.width - modalWidth) / 2
+	verticalPadding := (a.height - modalHeight) / 2
+
+	if horizontalPadding < 0 {
+		horizontalPadding = 0
+	}
+	if verticalPadding < 0 {
+		verticalPadding = 0
+	}
+
+	// Create centered layout
+	centeredModal := lipgloss.NewStyle().
+		PaddingLeft(horizontalPadding).
+		PaddingTop(verticalPadding).
+		Render(modal)
+
+	return centeredModal
 }
 
 // renderWithChrome adds header and footer to content

@@ -143,6 +143,38 @@ type UpdateErrorMsg struct {
 	Error error
 }
 
+// Startup Update Messages (blocking flow)
+
+// StartupUpdateCheckMsg signals that we should check for updates on startup
+type StartupUpdateCheckMsg struct{}
+
+// StartupUpdateAvailableMsg signals that an update is available during startup
+type StartupUpdateAvailableMsg struct {
+	CurrentVersion string
+	LatestVersion  string
+}
+
+// StartupUpdateNotNeededMsg signals no update is needed during startup
+type StartupUpdateNotNeededMsg struct{}
+
+// StartupUpdateProgressMsg signals progress during startup update
+type StartupUpdateProgressMsg struct {
+	Status string
+}
+
+// StartupUpdateCompleteMsg signals startup update completed
+type StartupUpdateCompleteMsg struct {
+	NewVersion string
+}
+
+// StartupUpdateErrorMsg signals startup update failed
+type StartupUpdateErrorMsg struct {
+	Error error
+}
+
+// StartupRestartMsg signals the app should restart after update
+type StartupRestartMsg struct{}
+
 // Clean Messages
 
 // ReleasesLoadedMsg signals releases have been fetched
