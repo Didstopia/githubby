@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -527,25 +528,35 @@ func (a *App) renderFooter() string {
 
 	helpText := joinWithSeparator(helpItems, "  ")
 
-	// Version on the right (format: v0.0.1-abc1234 (2026-01-27))
+	// Version on the right
+	// Production: v1.0.0 linux/amd64
+	// Dev build:  dev-abc1234 (2026-01-27) linux/amd64
 	versionText := ""
 	if a.version != "" {
-		versionStr := "v" + a.version
-		if a.commit != "" && a.commit != "unknown" {
-			// Show first 7 chars of commit hash
-			commitShort := a.commit
-			if len(commitShort) > 7 {
-				commitShort = commitShort[:7]
+		var versionStr string
+		platform := runtime.GOOS + "/" + runtime.GOARCH
+
+		if a.version == "dev" {
+			// Dev/manual build - show commit and date for identification
+			versionStr = "dev"
+			if a.commit != "" && a.commit != "unknown" {
+				commitShort := a.commit
+				if len(commitShort) > 7 {
+					commitShort = commitShort[:7]
+				}
+				versionStr += "-" + commitShort
 			}
-			versionStr += "-" + commitShort
-		}
-		if a.buildDate != "" && a.buildDate != "unknown" {
-			// Extract just the date part (YYYY-MM-DD) from ISO timestamp
-			dateStr := a.buildDate
-			if len(dateStr) >= 10 {
-				dateStr = dateStr[:10]
+			if a.buildDate != "" && a.buildDate != "unknown" {
+				dateStr := a.buildDate
+				if len(dateStr) >= 10 {
+					dateStr = dateStr[:10]
+				}
+				versionStr += " (" + dateStr + ")"
 			}
-			versionStr += " (" + dateStr + ")"
+			versionStr += " " + platform
+		} else {
+			// Production build - clean version with platform
+			versionStr = "v" + a.version + " " + platform
 		}
 		versionText = a.styles.Muted.Render(versionStr)
 	}

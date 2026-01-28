@@ -7,15 +7,16 @@ import (
 )
 
 // Version information - set via ldflags at build time
+// IMPORTANT: These must be uppercase to match ldflags -X main.Version=...
 var (
-	version   = "dev"
-	commit    = "unknown"
-	buildDate = "unknown"
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
 )
 
 func main() {
 	// Set version info
-	cli.SetVersionInfo(version, commit, buildDate)
+	cli.SetVersionInfo(Version, Commit, BuildDate)
 
 	// Run the CLI
 	cli.Execute()
