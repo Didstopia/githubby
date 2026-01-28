@@ -121,6 +121,9 @@ type App struct {
 	startupUpdateVersion string
 	startupUpdateError   error
 	updateStartTime      time.Time
+
+	// Restart flag - set when TUI should restart after clean quit
+	restartAfterQuit bool
 }
 
 // AppOption configures the App
@@ -512,16 +515,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case StartupRestartMsg:
-		// Time to restart
-		if err := update.Restart(); err != nil {
-			// If restart fails, show error and continue
-			a.startupUpdatePhase = UpdatePhaseError
-			a.startupUpdateError = fmt.Errorf("restart failed: %w", err)
-			return a, tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-				return StartupUpdateNotNeededMsg{}
-			})
-		}
-		// Restart should not return, but if it does, quit
+		// Set flag to restart after TUI quits cleanly
+		// This ensures the terminal is restored before we exec the new binary
+		a.restartAfterQuit = true
 		a.quitting = true
 		return a, tea.Quit
 
@@ -980,6 +976,14 @@ func RunApp(ctx context.Context, opts ...AppOption) error {
 	// Run the program
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithContext(ctx))
 	_, err := p.Run()
+
+	// Check if we need to restart after the TUI has cleanly exited
+	if app.restartAfterQuit {
+		if restartErr := update.Restart(); restartErr != nil {
+			return fmt.Errorf("update installed but restart failed: %w (please restart manually)", restartErr)
+		}
+	}
+
 	return err
 }
 
@@ -1003,6 +1007,17 @@ func RunAppInstance(ctx context.Context, app *App) error {
 	// Run the program
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithContext(ctx))
 	_, err := p.Run()
+
+	// Check if we need to restart after the TUI has cleanly exited
+	// This ensures the terminal is fully restored before we exec the new binary
+	if app.restartAfterQuit {
+		if restartErr := update.Restart(); restartErr != nil {
+			// If restart fails, return the error so user knows to restart manually
+			return fmt.Errorf("update installed but restart failed: %w (please restart manually)", restartErr)
+		}
+		// Restart succeeded (this line is never reached on Unix due to exec)
+	}
+
 	return err
 }
 
