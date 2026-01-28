@@ -54,3 +54,10 @@ func GetTerminalSize() (width, height int) {
 	// This is handled automatically by bubbletea, but we provide defaults
 	return width, height
 }
+
+// Bell prints the terminal bell character to trigger an audible/visual notification.
+// This is useful for alerting the user when a long-running task completes.
+func Bell() {
+	// ASCII BEL character (0x07) triggers the terminal bell
+	_, _ = os.Stdout.WriteString("\a")
+}

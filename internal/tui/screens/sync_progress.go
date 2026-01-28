@@ -17,6 +17,7 @@ import (
 	"github.com/Didstopia/githubby/internal/state"
 	"github.com/Didstopia/githubby/internal/sync"
 	"github.com/Didstopia/githubby/internal/tui"
+	tuiutil "github.com/Didstopia/githubby/internal/tui/util"
 )
 
 // SyncProgressScreen shows sync operation progress for a profile or multiple profiles
@@ -310,6 +311,8 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if s.totalRepos > 0 {
 				cmds = append(cmds, s.progress.SetPercent(1.0))
 			}
+			// Ring terminal bell to notify user
+			tuiutil.Bell()
 			return s, tea.Batch(cmds...)
 		}
 
