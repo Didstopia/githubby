@@ -522,14 +522,36 @@ func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath st
 	if repo.PushedAt != nil && !repo.PushedAt.IsZero() {
 		lastFetch, err := s.git.GetLastFetchTime(localPath)
 		if err == nil && !lastFetch.IsZero() {
-			// Add a small buffer (1 second) to handle timing edge cases
-			// nolint:staticcheck // QF1008 is a false positive - .Time is needed for comparison with time.Time
-			if repo.PushedAt.Time.Before(lastFetch.Add(-time.Second)) || repo.PushedAt.Time.Equal(lastFetch) {
-				// No pushes since our last fetch, we're up-to-date
+			// Add a buffer (2 seconds) to handle clock skew between GitHub and local system
+			// Up-to-date if pushed_at is not after (lastFetch + buffer)
+			buffer := 2 * time.Second
+			// Use .GetTime() to extract time.Time for comparison with time.Time
+			pushedAtTime := repo.PushedAt.GetTime()
+			if !pushedAtTime.After(lastFetch.Add(buffer)) {
+				// No pushes since our last fetch (within tolerance), we're up-to-date
+				if s.opts.Verbose {
+					fmt.Printf("[fast-sync] %s: skipping fetch (up-to-date, pushed_at=%v, last_fetch=%v)\n",
+						repo.GetFullName(), repo.PushedAt.Time, lastFetch)
+				}
 				return ProgressUpToDate, nil
 			}
+			if s.opts.Verbose {
+				fmt.Printf("[fast-sync] %s: fetch needed (pushed_at=%v > last_fetch=%v + %v buffer)\n",
+					repo.GetFullName(), repo.PushedAt.Time, lastFetch, buffer)
+			}
+		} else if s.opts.Verbose {
+			if err != nil {
+				fmt.Printf("[fast-sync] %s: fetch needed (FETCH_HEAD not found: %v)\n", repo.GetFullName(), err)
+			} else {
+				fmt.Printf("[fast-sync] %s: fetch needed (last_fetch is zero)\n", repo.GetFullName())
+			}
 		}
-		// On any error, fall through to normal fetch
+	} else if s.opts.Verbose {
+		if repo.PushedAt == nil {
+			fmt.Printf("[fast-sync] %s: fetch needed (pushed_at is nil)\n", repo.GetFullName())
+		} else {
+			fmt.Printf("[fast-sync] %s: fetch needed (pushed_at is zero)\n", repo.GetFullName())
+		}
 	}
 
 	// Fetch all branches from all remotes (for complete backup of all branches)

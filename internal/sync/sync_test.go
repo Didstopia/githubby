@@ -3,8 +3,10 @@ package sync
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	gh "github.com/google/go-github/v68/github"
 	"github.com/stretchr/testify/assert"
@@ -473,6 +475,166 @@ func TestOptions_Defaults(t *testing.T) {
 	assert.False(t, opts.Verbose)
 }
 
+// TestPullRepo_FastSync tests the fast sync optimization in pullRepo.
+// The fast sync should skip git fetch when the repo's PushedAt timestamp
+// indicates no changes since the last fetch.
+func TestPullRepo_FastSync(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	// Base time for all tests
+	baseTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name           string
+		pushedAt       *time.Time              // nil means PushedAt not set
+		fetchHeadTime  *time.Time              // nil means no FETCH_HEAD file
+		expectedStatus ProgressStatus
+		description    string
+	}{
+		{
+			name:           "up-to-date: pushed 1 hour before fetch",
+			pushedAt:       timePtr(baseTime.Add(-1 * time.Hour)),
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpToDate,
+			description:    "Should skip fetch when pushed_at is before last fetch",
+		},
+		{
+			name:           "up-to-date: pushed at same time as fetch",
+			pushedAt:       timePtr(baseTime),
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpToDate,
+			description:    "Should skip fetch when pushed_at equals last fetch (within buffer)",
+		},
+		{
+			name:           "up-to-date: pushed 1 second after fetch (within buffer)",
+			pushedAt:       timePtr(baseTime.Add(1 * time.Second)),
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpToDate,
+			description:    "Should skip fetch when pushed_at is within clock skew buffer",
+		},
+		{
+			name:           "up-to-date: pushed 2 seconds after fetch (at buffer boundary)",
+			pushedAt:       timePtr(baseTime.Add(2 * time.Second)),
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpToDate,
+			description:    "Should skip fetch when pushed_at is at the buffer boundary",
+		},
+		{
+			name:           "needs update: pushed 3 seconds after fetch (outside buffer)",
+			pushedAt:       timePtr(baseTime.Add(3 * time.Second)),
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpdated,
+			description:    "Should fetch when pushed_at is outside the clock skew buffer",
+		},
+		{
+			name:           "needs update: pushed 1 hour after fetch",
+			pushedAt:       timePtr(baseTime.Add(1 * time.Hour)),
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpdated,
+			description:    "Should fetch when pushed_at is significantly after last fetch",
+		},
+		{
+			name:           "nil PushedAt: falls through to fetch",
+			pushedAt:       nil,
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpdated,
+			description:    "Should fetch when PushedAt is nil (can't determine if up-to-date)",
+		},
+		{
+			name:           "zero PushedAt: falls through to fetch",
+			pushedAt:       timePtr(time.Time{}),
+			fetchHeadTime:  timePtr(baseTime),
+			expectedStatus: ProgressUpdated,
+			description:    "Should fetch when PushedAt is zero time",
+		},
+		{
+			name:           "missing FETCH_HEAD: falls through to fetch",
+			pushedAt:       timePtr(baseTime.Add(-1 * time.Hour)),
+			fetchHeadTime:  nil, // No FETCH_HEAD file
+			expectedStatus: ProgressUpdated,
+			description:    "Should fetch when FETCH_HEAD doesn't exist (never fetched before)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			// Set up the mock client
+			mockClient := github.NewMockClient()
+
+			// Create syncer with test options
+			opts := &Options{
+				Target:  tmpDir,
+				Verbose: false,
+			}
+			syncer := New(mockClient, gitInstance, opts)
+
+			// Create mock repo with the test's PushedAt value
+			repo := createMockRepoWithPushedAt("test-repo", "owner/test-repo", false, tt.pushedAt)
+
+			// Set up the local repo directory
+			repoPath := filepath.Join(tmpDir, "owner", "test-repo")
+			gitDir := filepath.Join(repoPath, ".git")
+			require.NoError(t, os.MkdirAll(gitDir, 0755))
+
+			// Create FETCH_HEAD if specified
+			if tt.fetchHeadTime != nil {
+				fetchHeadPath := filepath.Join(gitDir, "FETCH_HEAD")
+				require.NoError(t, os.WriteFile(fetchHeadPath, []byte("abc123\n"), 0644))
+				require.NoError(t, os.Chtimes(fetchHeadPath, *tt.fetchHeadTime, *tt.fetchHeadTime))
+			}
+
+			// For tests that expect ProgressUpdated, we need a real git repo
+			// because pullRepo will call FetchAll which requires a valid git repo
+			if tt.expectedStatus == ProgressUpdated {
+				// Initialize a real git repo for the fetch to work
+				initCmd := gitInstance.GitPath
+				cmd := exec.CommandContext(context.Background(), initCmd, "init", repoPath)
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("failed to init git repo: %v", err)
+				}
+
+				// Set up a dummy remote so fetch doesn't fail
+				cmd = exec.CommandContext(context.Background(), initCmd, "-C", repoPath, "remote", "add", "origin", "https://github.com/owner/test-repo.git")
+				_ = cmd.Run() // Ignore error if remote already exists
+
+				// Create FETCH_HEAD again after init (init may have removed it)
+				if tt.fetchHeadTime != nil {
+					fetchHeadPath := filepath.Join(gitDir, "FETCH_HEAD")
+					require.NoError(t, os.WriteFile(fetchHeadPath, []byte("abc123\n"), 0644))
+					require.NoError(t, os.Chtimes(fetchHeadPath, *tt.fetchHeadTime, *tt.fetchHeadTime))
+				}
+			}
+
+			// Call pullRepo directly
+			status, err := syncer.pullRepo(context.Background(), repo, repoPath)
+
+			// For ProgressUpdated cases, we expect either success or a fetch error
+			// (since we don't have a real remote). The important thing is that
+			// it didn't return ProgressUpToDate.
+			if tt.expectedStatus == ProgressUpdated {
+				// Either it succeeded (ProgressUpdated) or failed (fetch error)
+				// but it should NOT be ProgressUpToDate
+				assert.NotEqual(t, ProgressUpToDate, status,
+					"Expected fetch to be attempted (not up-to-date): %s", tt.description)
+			} else {
+				// For ProgressUpToDate cases, we expect success
+				require.NoError(t, err, "Unexpected error: %s", tt.description)
+				assert.Equal(t, tt.expectedStatus, status, tt.description)
+			}
+		})
+	}
+}
+
+// timePtr returns a pointer to the given time value
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
 // Helper functions
 
 func strPtr(s string) *string {
@@ -493,4 +655,14 @@ func createMockRepo(name, fullName string, private bool) *gh.Repository {
 		CloneURL: strPtr("https://github.com/" + fullName + ".git"),
 		SSHURL:   strPtr("git@github.com:" + fullName + ".git"),
 	}
+}
+
+// createMockRepoWithPushedAt creates a mock repository with a PushedAt timestamp.
+// If pushedAt is nil, PushedAt will not be set (tests nil case for fast sync).
+func createMockRepoWithPushedAt(name, fullName string, private bool, pushedAt *time.Time) *gh.Repository {
+	repo := createMockRepo(name, fullName, private)
+	if pushedAt != nil {
+		repo.PushedAt = &gh.Timestamp{Time: *pushedAt}
+	}
+	return repo
 }
