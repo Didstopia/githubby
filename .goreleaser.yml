@@ -62,3 +62,7 @@ release:
   prerelease: auto
   name_template: "v{{.Version}}"
   mode: replace
+  # Clean up any existing drafts with same name
+  replace_existing_draft: true
+  # Replace artifacts that already exist (handles 422 errors)
+  replace_existing_artifacts: true
