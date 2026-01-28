@@ -67,6 +67,11 @@ type Options struct {
 
 	// Concurrency sets the number of parallel sync operations (default: 1)
 	Concurrency int
+
+	// SkipArchiveDetection skips the detectArchived() call which walks the entire
+	// target directory. This is useful when syncing single repos (e.g., TUI worker)
+	// where archive detection should be done once at the end, not per-repo.
+	SkipArchiveDetection bool
 }
 
 // Result represents the result of a sync operation
@@ -211,7 +216,10 @@ func (s *Syncer) syncReposSequential(ctx context.Context, repos []*gh.Repository
 	}
 
 	// Detect archived repos (exist locally but not on remote)
-	result.Archived = s.detectArchived(repos)
+	// Skip if SkipArchiveDetection is set (e.g., TUI syncs single repos and handles this separately)
+	if !s.opts.SkipArchiveDetection {
+		result.Archived = s.detectArchived(repos)
+	}
 
 	return result, nil
 }
@@ -258,7 +266,10 @@ func (s *Syncer) syncReposParallel(ctx context.Context, repos []*gh.Repository, 
 	}
 
 	// Detect archived repos (exist locally but not on remote)
-	result.Archived = s.detectArchived(repos)
+	// Skip if SkipArchiveDetection is set (e.g., TUI syncs single repos and handles this separately)
+	if !s.opts.SkipArchiveDetection {
+		result.Archived = s.detectArchived(repos)
+	}
 
 	return result, nil
 }

@@ -70,9 +70,8 @@ type SyncProgressScreen struct {
 	exitPending bool
 	exitKey     string
 
-	// Channels for async sync progress
+	// Channel for async sync progress (completion is sent as status="complete")
 	syncProgressChan chan profileSyncProgressUpdate
-	syncDoneChan     chan profileSyncCompleteMsg
 
 	// Current repo being synced
 	currentRepo string
@@ -299,9 +298,22 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.collecting = false
 			s.archived++
 			s.reposCompleted++
+		case "complete":
+			// Sync finished - set progress to 100% and mark complete
+			s.syncing = false
+			s.complete = true
+			s.collecting = false
+			if msg.update.err != nil {
+				s.err = msg.update.err
+			}
+			// Set progress bar to 100%
+			if s.totalRepos > 0 {
+				cmds = append(cmds, s.progress.SetPercent(1.0))
+			}
+			return s, tea.Batch(cmds...)
 		}
 
-		// Update progress bar and ETA
+		// Update progress bar and ETA (skip for complete status - handled above)
 		if s.totalRepos > 0 {
 			done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed
 			cmds = append(cmds, s.progress.SetPercent(float64(done)/float64(s.totalRepos)))
@@ -340,15 +352,6 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Continue listening for more progress updates
 		cmds = append(cmds, s.waitForSyncProgress())
-
-	case profileSyncCompleteMsg:
-		s.syncing = false
-		s.complete = true
-		// Final counts are already tracked incrementally
-		if msg.err != nil {
-			s.err = msg.err
-		}
-		// Profile updates are done in runSyncInBackground
 	}
 
 	return s, tea.Batch(cmds...)
@@ -500,10 +503,9 @@ func (s *SyncProgressScreen) View() string {
 
 // startSync starts the sync operation in a background goroutine
 func (s *SyncProgressScreen) startSync() tea.Cmd {
-	// Initialize channels with larger buffer to prevent worker blocking
+	// Initialize channel with larger buffer to prevent worker blocking
 	// Buffer size accounts for 4 concurrent workers + main loop sending completions
 	s.syncProgressChan = make(chan profileSyncProgressUpdate, 16)
-	s.syncDoneChan = make(chan profileSyncCompleteMsg, 1)
 
 	// Start sync in background goroutine
 	go s.runSyncInBackground()
@@ -518,23 +520,22 @@ func (s *SyncProgressScreen) startSync() tea.Cmd {
 // runSyncInBackground performs the actual sync operation
 func (s *SyncProgressScreen) runSyncInBackground() {
 	defer close(s.syncProgressChan)
-	defer close(s.syncDoneChan)
 
 	if len(s.profiles) == 0 {
-		s.syncDoneChan <- profileSyncCompleteMsg{err: fmt.Errorf("no profiles")}
+		s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("no profiles")}
 		return
 	}
 
 	client := s.app.GitHubClient()
 	if client == nil {
-		s.syncDoneChan <- profileSyncCompleteMsg{err: fmt.Errorf("not authenticated")}
+		s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("not authenticated")}
 		return
 	}
 
 	// Use quiet git mode with authentication token
 	gitOps, err := git.NewQuietWithToken(s.app.Token())
 	if err != nil {
-		s.syncDoneChan <- profileSyncCompleteMsg{err: fmt.Errorf("git not available: %w", err)}
+		s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("git not available: %w", err)}
 		return
 	}
 
@@ -563,7 +564,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 		// Check for context cancellation before processing each profile
 		select {
 		case <-s.ctx.Done():
-			s.syncDoneChan <- profileSyncCompleteMsg{err: s.ctx.Err()}
+			s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()}
 			return
 		default:
 		}
@@ -587,7 +588,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 			if err != nil {
 				// Check if it's a context cancellation
 				if s.ctx.Err() != nil {
-					s.syncDoneChan <- profileSyncCompleteMsg{err: s.ctx.Err()}
+					s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()}
 					return
 				}
 				// Send error as a failed repo
@@ -623,7 +624,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 				// Check for context cancellation periodically
 				select {
 				case <-s.ctx.Done():
-					s.syncDoneChan <- profileSyncCompleteMsg{err: s.ctx.Err()}
+					s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()}
 					return
 				default:
 				}
@@ -705,10 +706,11 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 				}
 
 				opts := &sync.Options{
-					Target:         r.profile.TargetDir,
-					IncludePrivate: r.profile.IncludePrivate,
-					Include:        r.profile.IncludeFilter,
-					Exclude:        r.profile.ExcludeFilter,
+					Target:               r.profile.TargetDir,
+					IncludePrivate:       r.profile.IncludePrivate,
+					Include:              r.profile.IncludeFilter,
+					Exclude:              r.profile.ExcludeFilter,
+					SkipArchiveDetection: true, // TUI syncs per-repo; archive detection would walk entire dir per repo
 				}
 
 				syncer := sync.New(client, gitOps, opts)
@@ -805,34 +807,20 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 		s.app.Storage().Save()
 	}
 
-	s.syncDoneChan <- profileSyncCompleteMsg{
-		cloned:   cloned,
-		updated:  updated,
-		skipped:  skipped,
-		failed:   failed,
-		archived: archived,
-	}
+	// Send completion through the same channel to preserve message ordering
+	// (avoids race condition where done message could be received before all progress messages)
+	s.syncProgressChan <- profileSyncProgressUpdate{status: "complete"}
 }
 
 // waitForSyncProgress returns a command that waits for the next progress update
 func (s *SyncProgressScreen) waitForSyncProgress() tea.Cmd {
 	return func() tea.Msg {
-		select {
-		case update, ok := <-s.syncProgressChan:
-			if !ok {
-				// Channel closed, check done channel
-				if done, ok := <-s.syncDoneChan; ok {
-					return done
-				}
-				return profileSyncCompleteMsg{}
-			}
-			return profileSyncProgressMsg{update: update}
-		case done, ok := <-s.syncDoneChan:
-			if ok {
-				return done
-			}
-			return profileSyncCompleteMsg{}
+		update, ok := <-s.syncProgressChan
+		if !ok {
+			// Channel closed unexpectedly
+			return profileSyncProgressMsg{update: profileSyncProgressUpdate{status: "complete"}}
 		}
+		return profileSyncProgressMsg{update: update}
 	}
 }
 
@@ -872,20 +860,12 @@ func humanizeDuration(d time.Duration) string {
 // Message types
 type profileSyncProgressUpdate struct {
 	repoName string
-	status   string // "collecting", "syncing", "cloned", "updated", "up-to-date", "skipped", "failed"
+	status   string // "collecting", "syncing", "cloned", "updated", "up-to-date", "skipped", "failed", "complete"
 	current  int
 	total    int
+	err      error // Only set when status="complete" and there was an error
 }
 
 type profileSyncProgressMsg struct {
 	update profileSyncProgressUpdate
-}
-
-type profileSyncCompleteMsg struct {
-	cloned   int
-	updated  int
-	skipped  int
-	failed   int
-	archived int
-	err      error
 }

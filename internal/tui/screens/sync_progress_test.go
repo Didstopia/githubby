@@ -2,6 +2,7 @@ package screens
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ func TestProfileSyncProgressUpdate_StatusValues(t *testing.T) {
 		"up-to-date",
 		"skipped",
 		"failed",
+		"complete",
 	}
 
 	// This test ensures we don't forget to handle new statuses
@@ -239,22 +241,23 @@ func TestProgressMessageTypes(t *testing.T) {
 		assert.Equal(t, 10, msg.update.total)
 	})
 
-	t.Run("profileSyncCompleteMsg contains all fields", func(t *testing.T) {
-		msg := profileSyncCompleteMsg{
-			cloned:   10,
-			updated:  5,
-			skipped:  2,
-			failed:   1,
-			archived: 3,
-			err:      nil,
+	t.Run("profileSyncProgressUpdate with complete status contains error field", func(t *testing.T) {
+		// Test completion with no error
+		msg := profileSyncProgressUpdate{
+			status: "complete",
+			err:    nil,
 		}
-
-		assert.Equal(t, 10, msg.cloned)
-		assert.Equal(t, 5, msg.updated)
-		assert.Equal(t, 2, msg.skipped)
-		assert.Equal(t, 1, msg.failed)
-		assert.Equal(t, 3, msg.archived)
+		assert.Equal(t, "complete", msg.status)
 		assert.Nil(t, msg.err)
+
+		// Test completion with error
+		testErr := fmt.Errorf("test error")
+		msgWithErr := profileSyncProgressUpdate{
+			status: "complete",
+			err:    testErr,
+		}
+		assert.Equal(t, "complete", msgWithErr.status)
+		assert.Equal(t, testErr, msgWithErr.err)
 	})
 }
 
@@ -381,7 +384,6 @@ func TestWaitForSyncProgress(t *testing.T) {
 	t.Run("receives progress update from channel", func(t *testing.T) {
 		screen := &SyncProgressScreen{
 			syncProgressChan: make(chan profileSyncProgressUpdate, 1),
-			syncDoneChan:     make(chan profileSyncCompleteMsg, 1),
 		}
 
 		// Send an update
@@ -404,15 +406,13 @@ func TestWaitForSyncProgress(t *testing.T) {
 		assert.Equal(t, "cloned", progressMsg.update.status)
 	})
 
-	t.Run("receives done message when progress channel closed", func(t *testing.T) {
+	t.Run("receives complete status through progress channel", func(t *testing.T) {
 		screen := &SyncProgressScreen{
 			syncProgressChan: make(chan profileSyncProgressUpdate, 1),
-			syncDoneChan:     make(chan profileSyncCompleteMsg, 1),
 		}
 
-		// Close progress channel and send done
-		close(screen.syncProgressChan)
-		screen.syncDoneChan <- profileSyncCompleteMsg{cloned: 5}
+		// Send completion through progress channel (preserves message ordering)
+		screen.syncProgressChan <- profileSyncProgressUpdate{status: "complete"}
 
 		// Get the command
 		cmd := screen.waitForSyncProgress()
@@ -420,9 +420,28 @@ func TestWaitForSyncProgress(t *testing.T) {
 
 		// Execute and check result
 		msg := cmd()
-		doneMsg, ok := msg.(profileSyncCompleteMsg)
-		require.True(t, ok, "expected profileSyncCompleteMsg")
-		assert.Equal(t, 5, doneMsg.cloned)
+		progressMsg, ok := msg.(profileSyncProgressMsg)
+		require.True(t, ok, "expected profileSyncProgressMsg")
+		assert.Equal(t, "complete", progressMsg.update.status)
+	})
+
+	t.Run("handles closed channel gracefully", func(t *testing.T) {
+		screen := &SyncProgressScreen{
+			syncProgressChan: make(chan profileSyncProgressUpdate, 1),
+		}
+
+		// Close progress channel
+		close(screen.syncProgressChan)
+
+		// Get the command
+		cmd := screen.waitForSyncProgress()
+		require.NotNil(t, cmd)
+
+		// Execute and check result - should return complete status
+		msg := cmd()
+		progressMsg, ok := msg.(profileSyncProgressMsg)
+		require.True(t, ok, "expected profileSyncProgressMsg")
+		assert.Equal(t, "complete", progressMsg.update.status)
 	})
 }
 
