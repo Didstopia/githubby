@@ -23,6 +23,53 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Determine tag
+        id: get_tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
+
+      - name: Ensure tag points to master HEAD (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ steps.get_tag.outputs.tag }}"
+          HEAD_SHA=$(git rev-parse HEAD)
+
+          echo "Tag: $TAG"
+          echo "Master HEAD: $HEAD_SHA"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if tag exists
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            TAG_SHA=$(git rev-parse "$TAG")
+            echo "Existing tag SHA: $TAG_SHA"
+
+            if [ "$TAG_SHA" = "$HEAD_SHA" ]; then
+              echo "Tag already points to HEAD, no update needed"
+            else
+              echo "Updating tag to point to HEAD..."
+              # Delete and recreate tag
+              git tag -d "$TAG"
+              git push origin ":refs/tags/$TAG" || true
+              git tag -a "$TAG" -m "Release $TAG"
+              git push origin "$TAG"
+              echo "Tag updated successfully"
+            fi
+          else
+            echo "Creating new tag..."
+            git tag -a "$TAG" -m "Release $TAG"
+            git push origin "$TAG"
+            echo "Tag created successfully"
+          fi
+
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'

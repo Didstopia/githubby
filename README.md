@@ -3,7 +3,7 @@
 [![CI](https://github.com/Didstopia/githubby/actions/workflows/ci.yml/badge.svg)](https://github.com/Didstopia/githubby/actions/workflows/ci.yml)
 [![Security](https://github.com/Didstopia/githubby/actions/workflows/security.yml/badge.svg)](https://github.com/Didstopia/githubby/actions/workflows/security.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Didstopia/githubby)](https://goreportcard.com/report/github.com/Didstopia/githubby)
-[![Go Version](https://img.shields.io/github/go-mod-go-version/Didstopia/githubby)](https://github.com/Didstopia/githubby)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/Didstopia/githubby)](https://github.com/Didstopia/githubby)
 [![License](https://img.shields.io/github/license/Didstopia/githubby)](https://github.com/Didstopia/githubby/blob/master/LICENSE)
 [![Release](https://img.shields.io/github/v/release/Didstopia/githubby)](https://github.com/Didstopia/githubby/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Didstopia/githubby/total)](https://github.com/Didstopia/githubby/releases)
