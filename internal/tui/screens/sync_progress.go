@@ -57,10 +57,14 @@ type SyncProgressScreen struct {
 	height int
 
 	// State
-	loading  bool
-	syncing  bool
-	complete bool
-	err      error
+	loading    bool
+	collecting bool // True while collecting repos from API
+	syncing    bool
+	complete   bool
+	err        error
+
+	// Collecting phase tracking
+	collectingCount int // Number of repos collected so far
 
 	// Exit confirmation
 	exitPending bool
@@ -257,27 +261,42 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case profileSyncProgressMsg:
 		s.currentRepo = msg.update.repoName
-		s.totalRepos = msg.update.total
+		if msg.update.total > 0 {
+			s.totalRepos = msg.update.total
+		}
 		s.lastUpdateTime = time.Now()
 
-		// Update statistics based on status (only count completed statuses, not "syncing")
+		// Update statistics based on status (only count completed statuses, not "syncing" or "collecting")
 		switch msg.update.status {
+		case "collecting":
+			// Update collecting count for display, transition from collecting to syncing phase
+			s.collecting = true
+			s.collectingCount = msg.update.current
+		case "syncing":
+			// Transition out of collecting phase when syncing starts
+			s.collecting = false
 		case "cloned":
+			s.collecting = false
 			s.cloned++
 			s.reposCompleted++
 		case "updated":
+			s.collecting = false
 			s.updated++
 			s.reposCompleted++
 		case "up-to-date":
+			s.collecting = false
 			s.upToDate++
 			s.reposCompleted++
 		case "skipped":
+			s.collecting = false
 			s.skipped++
 			s.reposCompleted++
 		case "failed":
+			s.collecting = false
 			s.failed++
 			s.reposCompleted++
 		case "archived":
+			s.collecting = false
 			s.archived++
 			s.reposCompleted++
 		}
@@ -381,7 +400,14 @@ func (s *SyncProgressScreen) View() string {
 	// Current operation
 	if s.syncing {
 		content.WriteString(s.spinner.View())
-		if s.currentRepo != "" {
+		if s.collecting {
+			// Show collecting phase with count
+			if s.collectingCount > 0 {
+				content.WriteString(fmt.Sprintf(" Collecting repositories... (%d found)", s.collectingCount))
+			} else {
+				content.WriteString(" Collecting repositories from GitHub...")
+			}
+		} else if s.currentRepo != "" {
 			// Show current repo being synced with running totals
 			content.WriteString(fmt.Sprintf(" [%d/%d] Syncing %s...", done+1, total, s.currentRepo))
 			// Show running totals if any work has been done
@@ -474,8 +500,9 @@ func (s *SyncProgressScreen) View() string {
 
 // startSync starts the sync operation in a background goroutine
 func (s *SyncProgressScreen) startSync() tea.Cmd {
-	// Initialize channels
-	s.syncProgressChan = make(chan profileSyncProgressUpdate, 1)
+	// Initialize channels with larger buffer to prevent worker blocking
+	// Buffer size accounts for 4 concurrent workers + main loop sending completions
+	s.syncProgressChan = make(chan profileSyncProgressUpdate, 16)
 	s.syncDoneChan = make(chan profileSyncCompleteMsg, 1)
 
 	// Start sync in background goroutine
@@ -525,7 +552,22 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 	}
 	var allRepos []repoToSync
 
+	// Send initial collecting status
+	s.syncProgressChan <- profileSyncProgressUpdate{
+		status:  "collecting",
+		current: 0,
+		total:   0,
+	}
+
 	for _, profile := range s.profiles {
+		// Check for context cancellation before processing each profile
+		select {
+		case <-s.ctx.Done():
+			s.syncDoneChan <- profileSyncCompleteMsg{err: s.ctx.Err()}
+			return
+		default:
+		}
+
 		// Check if this is an "all repos" profile
 		if profile.SyncAllRepos || len(profile.SelectedRepos) == 0 {
 			// Fetch repos from API first
@@ -543,6 +585,11 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 			}
 
 			if err != nil {
+				// Check if it's a context cancellation
+				if s.ctx.Err() != nil {
+					s.syncDoneChan <- profileSyncCompleteMsg{err: s.ctx.Err()}
+					return
+				}
 				// Send error as a failed repo
 				s.syncProgressChan <- profileSyncProgressUpdate{
 					repoName: fmt.Sprintf("%s/%s", profile.Type, profile.Source),
@@ -564,9 +611,23 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 					profile:       profile,
 				})
 			}
+			// Send collecting progress update after each profile's repos are fetched
+			s.syncProgressChan <- profileSyncProgressUpdate{
+				status:  "collecting",
+				current: len(allRepos),
+				total:   0,
+			}
 		} else {
 			// Use specific repos from profile - fetch repo data upfront
 			for _, repoFullName := range profile.SelectedRepos {
+				// Check for context cancellation periodically
+				select {
+				case <-s.ctx.Done():
+					s.syncDoneChan <- profileSyncCompleteMsg{err: s.ctx.Err()}
+					return
+				default:
+				}
+
 				parts := strings.SplitN(repoFullName, "/", 2)
 				if len(parts) == 2 {
 					owner, repoName := parts[0], parts[1]
@@ -591,12 +652,29 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 							profile:       profile,
 						})
 					}
+					// Send collecting progress update periodically (every 10 repos)
+					if len(allRepos)%10 == 0 {
+						s.syncProgressChan <- profileSyncProgressUpdate{
+							status:  "collecting",
+							current: len(allRepos),
+							total:   0,
+						}
+					}
 				}
 			}
 		}
 	}
 
 	total := len(allRepos)
+
+	// Send final collecting update with total count before starting sync
+	if total > 0 {
+		s.syncProgressChan <- profileSyncProgressUpdate{
+			status:  "collecting",
+			current: total,
+			total:   total,
+		}
+	}
 
 	// Parallel sync with worker pool (4 concurrent workers)
 	const numWorkers = 4
@@ -794,7 +872,7 @@ func humanizeDuration(d time.Duration) string {
 // Message types
 type profileSyncProgressUpdate struct {
 	repoName string
-	status   string // "syncing", "cloned", "updated", "up-to-date", "skipped", "failed"
+	status   string // "collecting", "syncing", "cloned", "updated", "up-to-date", "skipped", "failed"
 	current  int
 	total    int
 }
