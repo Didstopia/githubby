@@ -126,6 +126,12 @@ type DeleteProfileConfirmedMsg struct {
 // DeleteProfileCancelledMsg signals user cancelled profile deletion
 type DeleteProfileCancelledMsg struct{}
 
+// UpdateAvailableMsg signals that an update is available
+type UpdateAvailableMsg struct {
+	CurrentVersion string
+	LatestVersion  string
+}
+
 // Clean Messages
 
 // ReleasesLoadedMsg signals releases have been fetched

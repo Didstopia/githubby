@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/Didstopia/githubby/internal/auth"
 	"github.com/Didstopia/githubby/internal/config"
+	"github.com/Didstopia/githubby/internal/update"
 )
 
 // Version information (set via ldflags)
@@ -120,9 +122,69 @@ func Execute() {
 		return
 	}
 
+	// Start background update check for non-update CLI commands
+	updateChan := startBackgroundUpdateCheck(ctx)
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Show update notification if available (after command completes)
+	showUpdateNotification(updateChan)
+}
+
+// startBackgroundUpdateCheck starts a background goroutine to check for updates
+// Returns a channel that will receive the update result (or nil on error/timeout)
+func startBackgroundUpdateCheck(ctx context.Context) <-chan *update.Result {
+	resultChan := make(chan *update.Result, 1)
+
+	// Skip for update command itself, version command, or dev builds
+	if len(os.Args) > 1 {
+		cmd := os.Args[1]
+		if cmd == "update" || cmd == "version" || cmd == "help" || cmd == "--help" || cmd == "-h" {
+			close(resultChan)
+			return resultChan
+		}
+	}
+
+	// Skip for dev builds
+	if Version == "" || Version == "dev" {
+		close(resultChan)
+		return resultChan
+	}
+
+	go func() {
+		defer close(resultChan)
+
+		// Create a timeout context for the update check
+		checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
+		defer checkCancel()
+
+		result, err := update.CheckForUpdate(checkCtx, Version)
+		if err != nil {
+			// Silently ignore errors (network issues, etc.)
+			return
+		}
+
+		if result != nil && result.Available {
+			resultChan <- result
+		}
+	}()
+
+	return resultChan
+}
+
+// showUpdateNotification displays the update notification if one is available
+func showUpdateNotification(updateChan <-chan *update.Result) {
+	// Wait briefly for result (should be ready by now since command completed)
+	select {
+	case result := <-updateChan:
+		if result != nil && result.Available {
+			fmt.Fprintf(os.Stderr, "\n%s\n", update.FormatUpdateNotification(result))
+		}
+	case <-time.After(100 * time.Millisecond):
+		// Don't block if update check is still running
 	}
 }
 

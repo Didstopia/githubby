@@ -12,6 +12,7 @@ import (
 
 	"github.com/Didstopia/githubby/internal/github"
 	"github.com/Didstopia/githubby/internal/state"
+	"github.com/Didstopia/githubby/internal/update"
 )
 
 // Screen represents a TUI screen type
@@ -88,6 +89,10 @@ type App struct {
 	version   string
 	commit    string
 	buildDate string
+
+	// Update state
+	updateAvailable bool
+	latestVersion   string
 }
 
 // AppOption configures the App
@@ -284,11 +289,45 @@ func (a *App) Height() int {
 
 // Init initializes the app
 func (a *App) Init() tea.Cmd {
+	var cmds []tea.Cmd
+
 	// Initialize the current screen
 	if model := a.getOrCreateScreen(a.currentScreen); model != nil {
-		return model.Init()
+		cmds = append(cmds, model.Init())
 	}
-	return nil
+
+	// Start background update check
+	cmds = append(cmds, a.checkForUpdateCmd())
+
+	return tea.Batch(cmds...)
+}
+
+// checkForUpdateCmd returns a command that checks for updates in the background
+func (a *App) checkForUpdateCmd() tea.Cmd {
+	// Skip for dev builds
+	if a.version == "" || a.version == "dev" {
+		return nil
+	}
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		result, err := update.CheckForUpdate(ctx, a.version)
+		if err != nil {
+			// Silently ignore errors
+			return nil
+		}
+
+		if result != nil && result.Available {
+			return UpdateAvailableMsg{
+				CurrentVersion: result.CurrentVersion,
+				LatestVersion:  result.LatestVersion,
+			}
+		}
+
+		return nil
+	}
 }
 
 // Update handles messages
@@ -418,6 +457,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DeleteProfileCancelledMsg:
 		// Just pop back to dashboard
 		return a, a.PopScreen()
+
+	case UpdateAvailableMsg:
+		// Store update info for display in footer
+		a.updateAvailable = true
+		a.latestVersion = msg.LatestVersion
 	}
 
 	// Update current screen
@@ -531,6 +575,7 @@ func (a *App) renderFooter() string {
 	// Version on the right
 	// Production: v1.0.0 linux/amd64
 	// Dev build:  dev-abc1234 (2026-01-27) linux/amd64
+	// With update: v1.0.0 -> v1.1.0 available
 	versionText := ""
 	if a.version != "" {
 		var versionStr string
@@ -554,11 +599,20 @@ func (a *App) renderFooter() string {
 				versionStr += " (" + dateStr + ")"
 			}
 			versionStr += " " + platform
+		} else if a.updateAvailable && a.latestVersion != "" {
+			// Update available - highlight it
+			versionStr = fmt.Sprintf("v%s", a.version)
+			versionText = a.styles.Muted.Render(versionStr+" ") +
+				a.styles.Warning.Render(fmt.Sprintf("-> v%s available", a.latestVersion))
 		} else {
 			// Production build - clean version with platform
 			versionStr = "v" + a.version + " " + platform
 		}
-		versionText = a.styles.Muted.Render(versionStr)
+
+		// Only set versionText if not already set (update case sets it differently)
+		if versionText == "" {
+			versionText = a.styles.Muted.Render(versionStr)
+		}
 	}
 
 	// Calculate gap between help and version

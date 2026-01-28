@@ -40,6 +40,7 @@ That's it! The interactive setup wizard will guide you through:
 - **Git LFS Support** - Automatic detection and configuration
 - **Secure Auth** - OAuth device flow with system keychain storage
 - **Release Cleanup** - Filter and remove old GitHub releases
+- **Auto-Update** - Built-in update checking and self-update capability
 - **Cross-Platform** - Linux, macOS, and Windows
 
 ---
@@ -147,6 +148,23 @@ githubby clean --repository owner/repo --filter-count 10
 githubby clean --repository owner/repo --filter-days 30 --dry-run
 ```
 
+### Updates
+
+GitHubby can check for and install updates automatically:
+
+```bash
+githubby update           # Check and install updates
+githubby update --check   # Check only, don't install
+```
+
+**Background notifications**: When running any command, GitHubby checks for updates in the background and shows a notification if a new version is available:
+
+```
+Update available: v1.0.0 -> v1.1.0 (run 'githubby update' to upgrade)
+```
+
+The TUI also displays update availability in the footer.
+
 ---
 
 ## How Fast Sync Works
@@ -236,8 +254,9 @@ githubby/
 │   ├── github/               # GitHub API client
 │   ├── sync/                 # Repository sync logic
 │   ├── state/                # TUI state management
-│   └── tui/                  # Terminal UI (Bubble Tea)
-│       └── screens/          # TUI screens (onboarding, dashboard, etc.)
+│   ├── tui/                  # Terminal UI (Bubble Tea)
+│   │   └── screens/          # TUI screens (onboarding, dashboard, etc.)
+│   └── update/               # Auto-update functionality
 └── .github/workflows/        # CI/CD
 ```
 
