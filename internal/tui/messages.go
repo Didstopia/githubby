@@ -132,6 +132,17 @@ type UpdateAvailableMsg struct {
 	LatestVersion  string
 }
 
+// UpdateCompleteMsg signals that an update has completed
+type UpdateCompleteMsg struct {
+	NewVersion string
+	Error      error
+}
+
+// UpdateErrorMsg signals that an update failed
+type UpdateErrorMsg struct {
+	Error error
+}
+
 // Clean Messages
 
 // ReleasesLoadedMsg signals releases have been fetched

@@ -91,8 +91,12 @@ type App struct {
 	buildDate string
 
 	// Update state
-	updateAvailable bool
-	latestVersion   string
+	updateAvailable  bool
+	latestVersion    string
+	updateConfirming bool
+	updateInProgress bool
+	updateComplete   bool
+	updateError      error
 }
 
 // AppOption configures the App
@@ -330,15 +334,56 @@ func (a *App) checkForUpdateCmd() tea.Cmd {
 	}
 }
 
+// performUpdateCmd returns a command that performs the actual update
+func (a *App) performUpdateCmd() tea.Cmd {
+	return func() tea.Msg {
+		// Use a longer timeout for the actual update (download + replace)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		result, err := update.Update(ctx, a.version)
+		if err != nil {
+			return UpdateCompleteMsg{Error: err}
+		}
+
+		return UpdateCompleteMsg{
+			NewVersion: result.LatestVersion,
+		}
+	}
+}
+
 // Update handles messages
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Global key handling - but let screens handle 'q' first
-		// Only quit on 'q' if not in a form or editor
-		// (screens should pass through QuitMsg when appropriate)
+		// Handle update confirmation keys
+		if a.updateConfirming {
+			switch msg.String() {
+			case "y", "Y":
+				a.updateConfirming = false
+				a.updateInProgress = true
+				return a, a.performUpdateCmd()
+			case "n", "N", "esc":
+				a.updateConfirming = false
+				return a, nil
+			}
+			// Ignore other keys while confirming
+			return a, nil
+		}
+
+		// Handle update complete - any key quits to restart
+		if a.updateComplete {
+			a.quitting = true
+			return a, tea.Quit
+		}
+
+		// Handle 'u' key for update when available
+		if a.updateAvailable && !a.updateInProgress && msg.String() == "u" {
+			a.updateConfirming = true
+			return a, nil
+		}
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
@@ -462,6 +507,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Store update info for display in footer
 		a.updateAvailable = true
 		a.latestVersion = msg.LatestVersion
+
+	case UpdateCompleteMsg:
+		a.updateInProgress = false
+		if msg.Error != nil {
+			a.updateError = msg.Error
+		} else {
+			a.updateComplete = true
+			a.version = msg.NewVersion
+		}
+
+	case UpdateErrorMsg:
+		a.updateInProgress = false
+		a.updateError = msg.Error
 	}
 
 	// Update current screen
@@ -555,6 +613,33 @@ func (a *App) renderHeader() string {
 func (a *App) renderFooter() string {
 	var helpItems []string
 
+	// Handle special update states
+	if a.updateConfirming {
+		// Show confirmation prompt
+		prompt := a.styles.Warning.Render(fmt.Sprintf("Update to v%s? ", a.latestVersion)) +
+			a.styles.HelpKey.Render("y") + a.styles.HelpValue.Render("/") +
+			a.styles.HelpKey.Render("n")
+		return a.styles.Footer.Width(a.width - 4).Render(prompt)
+	}
+
+	if a.updateInProgress {
+		// Show update in progress
+		status := a.styles.Info.Render(fmt.Sprintf("Downloading v%s...", a.latestVersion))
+		return a.styles.Footer.Width(a.width - 4).Render(status)
+	}
+
+	if a.updateComplete {
+		// Show update complete
+		status := a.styles.Success.Render(fmt.Sprintf("Updated to v%s! Press any key to restart.", a.version))
+		return a.styles.Footer.Width(a.width - 4).Render(status)
+	}
+
+	if a.updateError != nil {
+		// Show update error
+		status := a.styles.Error.Render(fmt.Sprintf("Update failed: %v", a.updateError))
+		return a.styles.Footer.Width(a.width - 4).Render(status)
+	}
+
 	// Get screen-specific help
 	if model := a.getOrCreateScreen(a.currentScreen); model != nil {
 		for _, binding := range model.ShortHelp() {
@@ -564,6 +649,12 @@ func (a *App) renderFooter() string {
 				helpItems = append(helpItems, help)
 			}
 		}
+	}
+
+	// Add update help if available
+	if a.updateAvailable && !a.updateInProgress {
+		updateHelp := a.styles.HelpKey.Render("u") + " " + a.styles.Warning.Render("update")
+		helpItems = append(helpItems, updateHelp)
 	}
 
 	// Add quit help
