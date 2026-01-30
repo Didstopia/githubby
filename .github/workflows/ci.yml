@@ -70,3 +70,18 @@ jobs:
 
       - name: Build
         run: go build -v ./...
+
+  docker:
+    name: Docker Build & Smoke Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build Docker image
+        run: docker build -t githubby:ci .
+
+      - name: Smoke test — version
+        run: docker run --rm githubby:ci version
+
+      - name: Smoke test — sync help
+        run: docker run --rm githubby:ci sync --help
