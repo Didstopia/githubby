@@ -75,8 +75,8 @@ type CleanScreen struct {
 	client github.Client
 
 	// Inputs
-	repoInput      textinput.Model
-	filterDaysInput textinput.Model
+	repoInput        textinput.Model
+	filterDaysInput  textinput.Model
 	filterCountInput textinput.Model
 
 	// List component
@@ -86,17 +86,17 @@ type CleanScreen struct {
 	spinner spinner.Model
 
 	// State
-	mode      cleanMode
-	owner     string
-	repo      string
-	releases  []*gh.RepositoryRelease
-	selected  map[int64]bool
-	filterDays int
+	mode        cleanMode
+	owner       string
+	repo        string
+	releases    []*gh.RepositoryRelease
+	selected    map[int64]bool
+	filterDays  int
 	filterCount int
 
 	// Deletion progress
-	deleteIdx   int
-	deleted     int
+	deleteIdx    int
+	deleted      int
 	deleteFailed int
 
 	// Channels for async operations
@@ -130,7 +130,7 @@ const (
 func NewCleanScreen(ctx context.Context, client github.Client) *CleanScreen {
 	// Create spinner
 	s := spinner.New()
-	s.Spinner = spinner.Moon
+	s.Spinner = spinner.Pulse
 	s.Style = tui.GetStyles().Spinner
 
 	// Create repo input

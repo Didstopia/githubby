@@ -36,7 +36,7 @@ const (
 	WizardStepLoadingOrgs
 	WizardStepSelectOrg
 	WizardStepFetchRepos
-	WizardStepRepoMode     // Choose: sync all or select specific
+	WizardStepRepoMode // Choose: sync all or select specific
 	WizardStepSelectRepos
 	WizardStepSetTarget
 	WizardStepConfirm
@@ -102,8 +102,8 @@ type SyncWizard struct {
 	selectedOrg string
 
 	// Repo selection mode
-	selectAllRepos  bool   // true = sync all, false = select specific
-	repoModeForm    *huh.Form
+	selectAllRepos bool // true = sync all, false = select specific
+	repoModeForm   *huh.Form
 
 	// Repositories
 	allRepos      []*gh.Repository
@@ -121,15 +121,15 @@ type SyncWizard struct {
 	confirmForm   *huh.Form
 
 	// Execution state
-	syncProgress  progress.Model
-	syncSpinner   spinner.Model
-	syncStatus    string
-	syncCurrent   int
-	syncTotal     int
-	syncResults   []*state.RepoSyncResult
-	syncRecord    *state.SyncRecord
-	syncResult    *sync.Result
-	syncError     error
+	syncProgress progress.Model
+	syncSpinner  spinner.Model
+	syncStatus   string
+	syncCurrent  int
+	syncTotal    int
+	syncResults  []*state.RepoSyncResult
+	syncRecord   *state.SyncRecord
+	syncResult   *sync.Result
+	syncError    error
 
 	// Channel for async sync progress
 	syncProgressChan chan syncProgressUpdate
@@ -156,7 +156,7 @@ type SyncWizard struct {
 func NewSyncWizard(ctx context.Context, app *tui.App) *SyncWizard {
 	// Initialize spinner
 	s := spinner.New()
-	s.Spinner = spinner.Moon
+	s.Spinner = spinner.Pulse
 	s.Style = tui.GetStyles().Spinner
 
 	// Initialize progress bar

@@ -35,7 +35,7 @@ type SyncProgressScreen struct {
 	// Progress tracking
 	items    []syncProgressItem
 	progress progress.Model
-	spinner    spinner.Model
+	spinner  spinner.Model
 
 	// Statistics
 	cloned     int
@@ -97,7 +97,7 @@ func NewSyncProgress(ctx context.Context, app *tui.App) *SyncProgressScreen {
 
 	// Create spinner
 	s := spinner.New()
-	s.Spinner = spinner.Moon
+	s.Spinner = spinner.Pulse
 	s.Style = tui.GetStyles().Spinner
 
 	return &SyncProgressScreen{
@@ -493,14 +493,14 @@ func (s *SyncProgressScreen) View() string {
 				content.WriteString("\n")
 				content.WriteString(s.styles.Error.Render("Failed repositories:"))
 				content.WriteString("\n")
-				
+
 				// Sort repo names for consistent display order
 				repoNames := make([]string, 0, len(s.failedRepos))
 				for repoName := range s.failedRepos {
 					repoNames = append(repoNames, repoName)
 				}
 				sort.Strings(repoNames)
-				
+
 				for _, repoName := range repoNames {
 					errMsg := s.failedRepos[repoName]
 					content.WriteString(fmt.Sprintf("  • %s\n", repoName))

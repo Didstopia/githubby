@@ -121,7 +121,7 @@ func WithStorage(storage *state.Storage) OnboardingOption {
 // NewOnboarding creates a new onboarding screen
 func NewOnboarding(ctx context.Context, opts ...OnboardingOption) *Onboarding {
 	s := spinner.New()
-	s.Spinner = spinner.Moon
+	s.Spinner = spinner.Pulse
 	s.Style = tui.GetStyles().Spinner
 
 	o := &Onboarding{
@@ -517,7 +517,7 @@ func (o *Onboarding) viewSyncConfig() string {
 
 	welcome := ""
 	if o.username != "" {
-		welcome = o.styles.Success.Render("Welcome, " + o.username + "!") + "\n\n"
+		welcome = o.styles.Success.Render("Welcome, "+o.username+"!") + "\n\n"
 	}
 
 	return lipgloss.JoinVertical(
