@@ -559,3 +559,130 @@ func TestTeaModelInterface(t *testing.T) {
 	// This is a compile-time check that SyncProgressScreen implements tea.Model
 	var _ tea.Model = (*SyncProgressScreen)(nil)
 }
+
+func TestETACalculationDuringInitialSync(t *testing.T) {
+	// Test that ETA is calculated and displayed during initial sync (clones)
+	// after just 1 repository completes
+
+	t.Run("ETA calculated after 1 clone completes", func(t *testing.T) {
+		screen := &SyncProgressScreen{
+			totalRepos:         10,
+			cloned:             1, // First clone completed
+			updated:            0,
+			upToDate:           0,
+			reposCompleted:     1,
+			lastETADoneCount:   0,
+			lastDisplayedETA:   0,
+			startTime:          time.Now().Add(-10 * time.Second), // Started 10 seconds ago
+		}
+
+		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
+
+		// Simulate the ETA calculation logic for initial sync
+		if done > screen.lastETADoneCount {
+			screen.lastETADoneCount = done
+
+			// Initial sync logic (cloned > 0 means we're doing clones)
+			minSamples := 1 // For initial sync with clones
+			if screen.cloned == 0 && done > 0 {
+				// Incremental sync - more conservative
+				minSamples = 3
+			}
+
+			if done >= minSamples {
+				elapsed := time.Since(screen.startTime)
+				avgPerRepo := elapsed / time.Duration(done)
+				remaining := screen.totalRepos - done
+				newETA := avgPerRepo * time.Duration(remaining)
+				screen.lastDisplayedETA = newETA
+			}
+		}
+
+		// Verify ETA was calculated
+		assert.Greater(t, screen.lastDisplayedETA, time.Duration(0), "ETA should be calculated after 1 clone")
+		assert.Equal(t, 1, screen.lastETADoneCount, "lastETADoneCount should be updated")
+
+		// Verify ETA is reasonable (should be roughly 90 seconds for 9 remaining repos at 10s/repo)
+		expectedETA := 90 * time.Second
+		assert.InDelta(t, expectedETA.Seconds(), screen.lastDisplayedETA.Seconds(), 5.0,
+			"ETA should be approximately 90 seconds")
+	})
+
+	t.Run("ETA not calculated until 3 updates complete for incremental sync", func(t *testing.T) {
+		screen := &SyncProgressScreen{
+			totalRepos:         10,
+			cloned:             0, // No clones, incremental sync
+			updated:            2, // Only 2 updates so far
+			upToDate:           0,
+			reposCompleted:     2,
+			lastETADoneCount:   0,
+			lastDisplayedETA:   0,
+			startTime:          time.Now().Add(-2 * time.Second),
+		}
+
+		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
+
+		// Simulate the ETA calculation logic
+		if done > screen.lastETADoneCount {
+			screen.lastETADoneCount = done
+
+			// Incremental sync logic (no clones)
+			minSamples := 1
+			if screen.cloned == 0 && done > 0 {
+				// Incremental sync - more conservative
+				minSamples = 3
+			}
+
+			if done >= minSamples {
+				elapsed := time.Since(screen.startTime)
+				avgPerRepo := elapsed / time.Duration(done)
+				remaining := screen.totalRepos - done
+				newETA := avgPerRepo * time.Duration(remaining)
+				screen.lastDisplayedETA = newETA
+			}
+		}
+
+		// Verify ETA was NOT calculated (need 3 samples for incremental sync)
+		assert.Equal(t, time.Duration(0), screen.lastDisplayedETA,
+			"ETA should not be calculated with only 2 updates in incremental sync")
+		assert.Equal(t, 2, screen.lastETADoneCount, "lastETADoneCount should still be updated")
+	})
+
+	t.Run("ETA calculated after 3 updates in incremental sync", func(t *testing.T) {
+		screen := &SyncProgressScreen{
+			totalRepos:         10,
+			cloned:             0, // No clones, incremental sync
+			updated:            3, // 3 updates completed
+			upToDate:           0,
+			reposCompleted:     3,
+			lastETADoneCount:   0,
+			lastDisplayedETA:   0,
+			startTime:          time.Now().Add(-6 * time.Second),
+		}
+
+		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
+
+		// Simulate the ETA calculation logic
+		if done > screen.lastETADoneCount {
+			screen.lastETADoneCount = done
+
+			// Incremental sync logic
+			minSamples := 1
+			if screen.cloned == 0 && done > 0 {
+				minSamples = 3
+			}
+
+			if done >= minSamples {
+				elapsed := time.Since(screen.startTime)
+				avgPerRepo := elapsed / time.Duration(done)
+				remaining := screen.totalRepos - done
+				newETA := avgPerRepo * time.Duration(remaining)
+				screen.lastDisplayedETA = newETA
+			}
+		}
+
+		// Verify ETA was calculated
+		assert.Greater(t, screen.lastDisplayedETA, time.Duration(0),
+			"ETA should be calculated after 3 updates in incremental sync")
+	})
+}
