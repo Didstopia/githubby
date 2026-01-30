@@ -1,0 +1,38 @@
+# GitHubby Docker Compose — sample scheduled sync services.
+#
+# Prerequisites:
+#   1. Copy .env.example to .env (or export GITHUB_TOKEN in your shell)
+#   2. Adjust service names, users, schedules, and volumes to taste
+#
+# Usage:
+#   docker compose up -d            # start all services
+#   docker compose logs -f          # follow logs
+#   docker compose down             # stop all services
+
+services:
+  # Syncs every saved TUI profile every 6 hours.
+  # Profiles are read from the persistent "githubby-state" volume,
+  # so you need to create them via the TUI first (or copy state.yaml in).
+  sync-all-profiles:
+    image: ghcr.io/didstopia/githubby:latest
+    command: ["sync", "--all-profiles", "--schedule", "0 */6 * * *"]  # At minute 0 past every 6th hour
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      - ./repos:/repos                   # local directory for cloned repositories
+      - githubby-state:/root/.githubby   # persists profiles & sync history between restarts
+    restart: unless-stopped
+
+  # Syncs all repositories for a single GitHub user every 30 minutes.
+  # Replace "myuser" with the GitHub username you want to sync.
+  sync-user:
+    image: ghcr.io/didstopia/githubby:latest
+    command: ["sync", "--user", "myuser", "--target", "/repos", "--schedule", "*/30 * * * *"]  # Every 30 minutes
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      - ./repos:/repos   # local directory for cloned repositories
+    restart: unless-stopped
+
+volumes:
+  githubby-state:   # named volume — keeps ~/.githubby/state.yaml across container recreates

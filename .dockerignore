@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+*.md
+!README.md
+.goreleaser.yml
+.golangci.yml
+coverage.*
+githubby
+githubby-*

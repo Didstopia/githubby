@@ -41,6 +41,9 @@ That's it! The interactive setup wizard will guide you through:
 - **Secure Auth** - OAuth device flow with system keychain storage
 - **Release Cleanup** - Filter and remove old GitHub releases
 - **Auto-Update** - Automatic updates on launch with seamless restart
+- **Scheduled Sync** - Cron-based recurring sync for unattended operation
+- **Profile-Based CLI** - Run saved TUI profiles from the command line
+- **Docker Support** - Minimal `scratch` image for containerized sync
 - **Cross-Platform** - Linux, macOS, and Windows
 
 ---
@@ -66,6 +69,13 @@ If you have Go installed:
 
 ```bash
 go install github.com/Didstopia/githubby@latest
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/didstopia/githubby:latest
+docker run --rm ghcr.io/didstopia/githubby:latest version
 ```
 
 ### Build from Source
@@ -125,6 +135,96 @@ githubby sync --user <username> --target ~/repos --dry-run
 # Verbose output (shows fast-sync decisions)
 githubby sync --user <username> --target ~/repos --verbose
 ```
+
+### Profile-Based Sync
+
+Run saved TUI profiles directly from the CLI — no interactive mode needed:
+
+```bash
+# Sync a specific profile by name
+githubby sync --profile "my-profile"
+
+# Sync all saved profiles
+githubby sync --all-profiles
+```
+
+Profiles are created in the interactive TUI and stored in `~/.githubby/state.yaml`. Each profile saves the sync type (user/org), source, target directory, and filter settings.
+
+### Scheduled Sync
+
+Use `--schedule` with any sync mode to run recurring syncs in the foreground. The schedule uses standard cron syntax:
+
+```bash
+# Sync every 6 hours
+githubby sync --user <username> --target ~/repos --schedule "0 */6 * * *"
+
+# Sync all profiles every 30 minutes
+githubby sync --all-profiles --schedule "@every 30m"
+
+# Sync a profile on a cron schedule
+githubby sync --profile "my-profile" --schedule "@hourly"
+```
+
+The scheduler runs an immediate sync on start, then follows the cron schedule. Overlapping runs are automatically skipped. Use `Ctrl+C` to stop.
+
+**Supported schedule formats:**
+| Format | Example | Description |
+|--------|---------|-------------|
+| Cron | `0 */6 * * *` | Standard 5-field cron expression |
+| `@every` | `@every 30m` | Fixed interval (s, m, h) |
+| `@hourly` | `@hourly` | Predefined schedules |
+| `@daily` | `@daily` | Once per day at midnight |
+
+### Docker
+
+Run GitHubby in a container for unattended scheduled sync:
+
+```bash
+# One-off sync
+docker run --rm \
+  -e GITHUB_TOKEN=ghp_... \
+  -v ~/repos:/repos \
+  ghcr.io/didstopia/githubby:latest \
+  sync --user <username> --target /repos
+
+# Scheduled sync (runs every 6 hours)
+docker run -d --restart unless-stopped \
+  -e GITHUB_TOKEN=ghp_... \
+  -v ~/repos:/repos \
+  ghcr.io/didstopia/githubby:latest \
+  sync --user <username> --target /repos --schedule "0 */6 * * *"
+```
+
+Or use `docker-compose.yaml` for persistent setups:
+
+```yaml
+services:
+  # Syncs every saved TUI profile every 6 hours (at :00 past every 6th hour).
+  sync-all-profiles:
+    image: ghcr.io/didstopia/githubby:latest
+    command: ["sync", "--all-profiles", "--schedule", "0 */6 * * *"]
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      - ./repos:/repos                   # local directory for cloned repositories
+      - githubby-state:/root/.githubby   # persists profiles & sync history
+    restart: unless-stopped
+
+  # Syncs a single user's repositories every 30 minutes.
+  sync-user:
+    image: ghcr.io/didstopia/githubby:latest
+    command: ["sync", "--user", "myuser", "--target", "/repos", "--schedule", "*/30 * * * *"]
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      - ./repos:/repos
+    restart: unless-stopped
+
+volumes:
+  githubby-state:
+```
+
+A fully commented `docker-compose.yaml` is included in the repository.
 
 ### Authentication Commands
 
@@ -258,6 +358,7 @@ githubby/
 │   ├── config/               # Configuration management
 │   ├── git/                  # Git and LFS operations
 │   ├── github/               # GitHub API client
+│   ├── schedule/             # Cron-based sync scheduling
 │   ├── sync/                 # Repository sync logic
 │   ├── state/                # TUI state management
 │   ├── tui/                  # Terminal UI (Bubble Tea)

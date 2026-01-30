@@ -157,6 +157,13 @@ func (s *Storage) GetProfile(id string) *SyncProfile {
 	return s.state.GetProfile(id)
 }
 
+// GetProfileByName returns a profile by name
+func (s *Storage) GetProfileByName(name string) *SyncProfile {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.GetProfileByName(name)
+}
+
 // GetProfiles returns all profiles
 func (s *Storage) GetProfiles() []*SyncProfile {
 	s.mu.RLock()
