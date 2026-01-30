@@ -327,9 +327,15 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				s.lastETADoneCount = done
 
 				// Only calculate ETA after warmup period
-				minSamples := min(10, s.totalRepos/10)
-				if minSamples < 3 {
-					minSamples = 3
+				// For initial sync (mostly clones), we can show ETA sooner since each operation takes longer
+				// For incremental sync (mostly updates), wait for more samples for accuracy
+				minSamples := 1 // Start with 1 for initial sync
+				if s.cloned == 0 && done > 0 {
+					// Incremental sync (no clones yet) - use more conservative warmup
+					minSamples = min(10, s.totalRepos/10)
+					if minSamples < 3 {
+						minSamples = 3
+					}
 				}
 
 				if done >= minSamples {
