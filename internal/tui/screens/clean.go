@@ -130,7 +130,7 @@ const (
 func NewCleanScreen(ctx context.Context, client github.Client) *CleanScreen {
 	// Create spinner
 	s := spinner.New()
-	s.Spinner = spinner.Pulse
+	s.Spinner = spinner.Dot
 	s.Style = tui.GetStyles().Spinner
 
 	// Create repo input

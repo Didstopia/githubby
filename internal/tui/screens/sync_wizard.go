@@ -156,7 +156,7 @@ type SyncWizard struct {
 func NewSyncWizard(ctx context.Context, app *tui.App) *SyncWizard {
 	// Initialize spinner
 	s := spinner.New()
-	s.Spinner = spinner.Pulse
+	s.Spinner = spinner.Dot
 	s.Style = tui.GetStyles().Spinner
 
 	// Initialize progress bar

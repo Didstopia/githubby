@@ -121,7 +121,7 @@ func WithStorage(storage *state.Storage) OnboardingOption {
 // NewOnboarding creates a new onboarding screen
 func NewOnboarding(ctx context.Context, opts ...OnboardingOption) *Onboarding {
 	s := spinner.New()
-	s.Spinner = spinner.Pulse
+	s.Spinner = spinner.Dot
 	s.Style = tui.GetStyles().Spinner
 
 	o := &Onboarding{

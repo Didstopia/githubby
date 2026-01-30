@@ -98,7 +98,7 @@ func NewSyncProgress(ctx context.Context, app *tui.App) *SyncProgressScreen {
 
 	// Create spinner
 	s := spinner.New()
-	s.Spinner = spinner.Pulse
+	s.Spinner = spinner.Dot
 	s.Style = tui.GetStyles().Spinner
 
 	return &SyncProgressScreen{
