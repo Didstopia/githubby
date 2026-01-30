@@ -76,6 +76,9 @@ type SyncProgressScreen struct {
 
 	// Current repo being synced
 	currentRepo string
+
+	// Failed repositories with error messages
+	failedRepos map[string]string // map[repoName]errorMessage
 }
 
 type syncProgressItem struct {
@@ -97,15 +100,16 @@ func NewSyncProgress(ctx context.Context, app *tui.App) *SyncProgressScreen {
 	s.Style = tui.GetStyles().Spinner
 
 	return &SyncProgressScreen{
-		ctx:      ctx,
-		app:      app,
-		styles:   tui.GetStyles(),
-		keys:     tui.GetKeyMap(),
-		progress: p,
-		spinner:  s,
-		width:    80,
-		height:   24,
-		loading:  true,
+		ctx:         ctx,
+		app:         app,
+		styles:      tui.GetStyles(),
+		keys:        tui.GetKeyMap(),
+		progress:    p,
+		spinner:     s,
+		width:       80,
+		height:      24,
+		loading:     true,
+		failedRepos: make(map[string]string),
 	}
 }
 
@@ -295,6 +299,10 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.collecting = false
 			s.failed++
 			s.reposCompleted++
+			// Store error message if provided
+			if msg.update.err != nil && msg.update.repoName != "" {
+				s.failedRepos[msg.update.repoName] = msg.update.err.Error()
+			}
 		case "archived":
 			s.collecting = false
 			s.archived++
@@ -473,6 +481,16 @@ func (s *SyncProgressScreen) View() string {
 		}
 		if s.failed > 0 {
 			content.WriteString(fmt.Sprintf("  %s Failed: %d\n", s.styles.Error.Render("●"), s.failed))
+			// Show detailed error messages for failed repos
+			if len(s.failedRepos) > 0 {
+				content.WriteString("\n")
+				content.WriteString(s.styles.Error.Render("Failed repositories:"))
+				content.WriteString("\n")
+				for repoName, errMsg := range s.failedRepos {
+					content.WriteString(fmt.Sprintf("  • %s\n", repoName))
+					content.WriteString(fmt.Sprintf("    %s\n", s.styles.Muted.Render(errMsg)))
+				}
+			}
 		}
 		if s.archived > 0 {
 			content.WriteString(fmt.Sprintf("  %s Archived: %d (preserved locally, no longer on remote)\n", s.styles.Info.Render("●"), s.archived))
@@ -688,6 +706,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 	results := make(chan struct {
 		status string
 		idx    int
+		err    error
 	}, len(allRepos))
 
 	// Track completed count for progress
@@ -731,11 +750,18 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 				result, err := syncer.SyncRepoWithData(s.ctx, repo)
 
 				status := "skipped"
+				var syncErr error
 				if err != nil {
 					status = "failed"
+					syncErr = err
 				} else if result != nil {
 					if len(result.Failed) > 0 {
 						status = "failed"
+						// Get the error from the Failed map
+						for _, failErr := range result.Failed {
+							syncErr = failErr
+							break // Use the first error
+						}
 					} else if len(result.Cloned) > 0 {
 						status = "cloned"
 					} else if len(result.Updated) > 0 {
@@ -754,7 +780,8 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 				results <- struct {
 					status string
 					idx    int
-				}{status: status, idx: idx}
+					err    error
+				}{status: status, idx: idx, err: syncErr}
 			}
 		}()
 	}
@@ -794,6 +821,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 			status:   res.status,
 			current:  int(completedCount),
 			total:    total,
+			err:      res.err,
 		}
 	}
 
@@ -866,7 +894,7 @@ type profileSyncProgressUpdate struct {
 	status   string // "collecting", "syncing", "cloned", "updated", "up-to-date", "skipped", "failed", "complete"
 	current  int
 	total    int
-	err      error // Only set when status="complete" and there was an error
+	err      error // Set when status="complete" for overall errors, or status="failed" for individual repo errors
 }
 
 type profileSyncProgressMsg struct {
