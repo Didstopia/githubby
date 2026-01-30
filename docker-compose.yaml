@@ -1,8 +1,13 @@
 # GitHubby Docker Compose — sample scheduled sync services.
 #
 # Prerequisites:
-#   1. Copy .env.example to .env (or export GITHUB_TOKEN in your shell)
-#   2. Adjust service names, users, schedules, and volumes to taste
+#   1. Create a GitHub personal access token (PAT):
+#        https://github.com/settings/tokens
+#      Select the "repo" scope for private repositories (public repos work without scopes).
+#   2. Create a .env file next to this file with:
+#        GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+#      Or export GITHUB_TOKEN in your shell before running docker compose.
+#   3. Adjust service names, users, schedules, and volumes to taste.
 #
 # Usage:
 #   docker compose up -d            # start all services

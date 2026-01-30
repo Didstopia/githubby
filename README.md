@@ -110,6 +110,33 @@ githubby
 - View sync history and status
 - Access release cleanup tools
 
+### Authentication for Non-Interactive Use
+
+CLI, scheduled, and Docker workflows cannot use the interactive OAuth browser flow. Instead, provide a GitHub personal access token (PAT) via the `GITHUB_TOKEN` environment variable:
+
+1. Go to **[github.com/settings/tokens](https://github.com/settings/tokens)**
+2. Click **Generate new token (classic)** (or use a fine-grained token)
+3. Select the **`repo`** scope (required for private repositories; public repos work without scopes)
+4. Copy the token and export it:
+
+```bash
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Or pass it directly with `--token`:
+
+```bash
+githubby sync --token ghp_... --user <username> --target ~/repos
+```
+
+For Docker Compose, create a `.env` file next to `docker-compose.yaml`:
+
+```
+GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+> **Tip**: The interactive TUI (`githubby login`) stores tokens in the system keychain. CLI and scheduled modes will pick up that stored token automatically if `GITHUB_TOKEN` is not set — but headless environments (Docker, CI) have no keychain, so the environment variable is required.
+
 ### CLI Mode (Automation)
 
 For scripts and automation, use CLI flags directly:
