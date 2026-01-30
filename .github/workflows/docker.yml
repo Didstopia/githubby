@@ -1,8 +1,13 @@
 name: Docker
 
 on:
-  release:
-    types: [published]
+  # Automatically run after the Release workflow completes successfully.
+  # (Events created by GITHUB_TOKEN don't trigger "release: published" in
+  #  other workflows, so we use workflow_run instead.)
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  # Manual trigger with an explicit tag.
   workflow_dispatch:
     inputs:
       tag:
@@ -18,8 +23,15 @@ jobs:
   docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    # Only run if the Release workflow succeeded (skip on failure/cancelled),
+    # or if this was triggered manually.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Determine tag
         id: get_tag
@@ -27,8 +39,15 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ inputs.tag }}"
           else
-            TAG="${{ github.event.release.tag_name }}"
+            # workflow_run: find the latest semver tag pointing at HEAD
+            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           fi
+
+          if [ -z "$TAG" ]; then
+            echo "::error::Could not determine release tag"
+            exit 1
+          fi
+
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Using tag: $TAG"
 
