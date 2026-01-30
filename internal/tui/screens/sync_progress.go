@@ -318,7 +318,7 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update progress bar and ETA (skip for complete status - handled above)
 		if s.totalRepos > 0 {
-			done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed
+			done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed + s.archived
 			cmds = append(cmds, s.progress.SetPercent(float64(done)/float64(s.totalRepos)))
 
 			// Recalculate ETA only when done count actually changes (repo completed)
@@ -395,7 +395,7 @@ func (s *SyncProgressScreen) View() string {
 
 	// Progress
 	total := s.totalRepos
-	done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed
+	done := s.cloned + s.updated + s.upToDate + s.skipped + s.failed + s.archived
 	if total > 0 {
 		pct := float64(done) / float64(total)
 		content.WriteString(s.progress.ViewAs(pct))

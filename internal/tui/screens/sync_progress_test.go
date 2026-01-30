@@ -576,7 +576,7 @@ func TestETACalculationDuringInitialSync(t *testing.T) {
 			startTime:          time.Now().Add(-10 * time.Second), // Started 10 seconds ago
 		}
 
-		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed
+		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
 
 		// Simulate the ETA calculation logic for initial sync
 		if done > screen.lastETADoneCount {
@@ -620,7 +620,7 @@ func TestETACalculationDuringInitialSync(t *testing.T) {
 			startTime:          time.Now().Add(-2 * time.Second),
 		}
 
-		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed
+		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
 
 		// Simulate the ETA calculation logic
 		if done > screen.lastETADoneCount {
@@ -660,7 +660,7 @@ func TestETACalculationDuringInitialSync(t *testing.T) {
 			startTime:          time.Now().Add(-6 * time.Second),
 		}
 
-		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed
+		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
 
 		// Simulate the ETA calculation logic
 		if done > screen.lastETADoneCount {
