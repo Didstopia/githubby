@@ -15,6 +15,7 @@ var (
 	ErrRateLimited       = errors.New("GitHub API rate limit exceeded")
 	ErrNotFound          = errors.New("resource not found")
 	ErrUnauthorized      = errors.New("unauthorized: invalid or expired token")
+	ErrForbidden         = errors.New("forbidden: insufficient permissions")
 )
 
 // AuthError represents an authentication error with helpful guidance
@@ -78,13 +79,33 @@ func NewAPIError(statusCode int, message string, err error) *APIError {
 	return &APIError{StatusCode: statusCode, Message: message, Err: err}
 }
 
-// IsRateLimited checks if the error is a rate limit error
+// IsRateLimited checks if the error is a rate limit error.
+// Only matches ErrRateLimited sentinel and 429 APIError status codes.
+// Permission-denied 403s use ErrForbidden instead and are NOT retried.
 func IsRateLimited(err error) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.StatusCode == 403 || apiErr.StatusCode == 429
+		return apiErr.StatusCode == 429
 	}
 	return errors.Is(err, ErrRateLimited)
+}
+
+// IsUnauthorized checks if the error is an unauthorized (401) error
+func IsUnauthorized(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 401
+	}
+	return errors.Is(err, ErrUnauthorized)
+}
+
+// IsForbidden checks if the error is a forbidden (403 permission-denied) error
+func IsForbidden(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == 403
+	}
+	return errors.Is(err, ErrForbidden)
 }
 
 // IsNotFound checks if the error is a not found error
@@ -94,4 +115,26 @@ func IsNotFound(err error) bool {
 		return apiErr.StatusCode == 404
 	}
 	return errors.Is(err, ErrNotFound)
+}
+
+// NewAuthErrorWithReason creates a user-friendly authentication error that includes a specific reason
+func NewAuthErrorWithReason(reason string) *AuthError {
+	return &AuthError{
+		Message: fmt.Sprintf(`%s
+
+To fix this:
+  1. githubby logout
+  2. githubby login`, reason),
+	}
+}
+
+// NewExpiredTokenError creates an auth error that identifies which token source failed
+func NewExpiredTokenError(source string) *AuthError {
+	return &AuthError{
+		Message: fmt.Sprintf(`token from %s is invalid or expired
+
+To fix this:
+  1. githubby logout
+  2. githubby login`, source),
+	}
 }

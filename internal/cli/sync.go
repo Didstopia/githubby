@@ -122,6 +122,10 @@ func runSync(cmd *cobra.Command, args []string) error {
 	// Print summary
 	printSyncSummary(result)
 
+	if syncErr != nil && (gherrors.IsUnauthorized(syncErr) || gherrors.IsForbidden(syncErr)) {
+		return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
+	}
+
 	return syncErr
 }
 

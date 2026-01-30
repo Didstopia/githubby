@@ -85,6 +85,9 @@ func runClean(cmd *cobra.Command, args []string) error {
 	// Fetch all releases
 	releases, err := client.GetReleases(ctx, owner, repo)
 	if err != nil {
+		if gherrors.IsUnauthorized(err) || gherrors.IsForbidden(err) {
+			return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
+		}
 		return fmt.Errorf("failed to fetch releases: %w", err)
 	}
 
@@ -142,6 +145,12 @@ func runClean(cmd *cobra.Command, args []string) error {
 
 		if !dryRun {
 			if err := client.RemoveRelease(ctx, owner, repo, release); err != nil {
+				if gherrors.IsUnauthorized(err) || gherrors.IsForbidden(err) {
+					if progressBar != nil {
+						progressBar.Finish()
+					}
+					return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
+				}
 				fmt.Printf("Error deleting release: %v\n", err)
 			} else {
 				deletedCount++

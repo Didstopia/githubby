@@ -191,6 +191,46 @@ func TestCalculateBackoff(t *testing.T) {
 	}
 }
 
+func TestWithRetry_ForbiddenNotRetried(t *testing.T) {
+	mockClient := NewMockClient()
+	config := &RetryConfig{
+		MaxRetries:   3,
+		InitialDelay: 10 * time.Millisecond,
+		MaxDelay:     100 * time.Millisecond,
+		Multiplier:   2.0,
+	}
+	retryable := NewRetryableClient(mockClient, config)
+
+	callCount := 0
+	err := retryable.withRetry(context.Background(), func() error {
+		callCount++
+		return gherrors.ErrForbidden // Permission denied, should not retry
+	})
+
+	assert.ErrorIs(t, err, gherrors.ErrForbidden)
+	assert.Equal(t, 1, callCount) // Only called once, no retries for forbidden errors
+}
+
+func TestWithRetry_UnauthorizedNotRetried(t *testing.T) {
+	mockClient := NewMockClient()
+	config := &RetryConfig{
+		MaxRetries:   3,
+		InitialDelay: 10 * time.Millisecond,
+		MaxDelay:     100 * time.Millisecond,
+		Multiplier:   2.0,
+	}
+	retryable := NewRetryableClient(mockClient, config)
+
+	callCount := 0
+	err := retryable.withRetry(context.Background(), func() error {
+		callCount++
+		return gherrors.ErrUnauthorized // Auth error, should not retry
+	})
+
+	assert.ErrorIs(t, err, gherrors.ErrUnauthorized)
+	assert.Equal(t, 1, callCount) // Only called once, no retries for auth errors
+}
+
 func TestCalculateBackoff_CustomMultiplier(t *testing.T) {
 	config := &RetryConfig{
 		MaxRetries:   5,

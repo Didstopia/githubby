@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -205,10 +206,31 @@ func (c *client) GetBranchRef(ctx context.Context, owner, repo, branch string) (
 	return ref.GetObject().GetSHA(), nil
 }
 
-// wrapAPIError converts a GitHub API response error to our error type
+// wrapAPIError converts a GitHub API response error to our error type.
+// It checks go-github typed errors first for accurate rate-limit detection,
+// then falls back to status code mapping. GitHub API error messages are
+// preserved in the returned error for better diagnostics.
 func wrapAPIError(resp *gh.Response, err error) error {
 	if err == nil {
 		return nil
+	}
+
+	// Check go-github typed errors first (most reliable for rate limiting)
+	var rateLimitErr *gh.RateLimitError
+	if errors.As(err, &rateLimitErr) {
+		return fmt.Errorf("%w: %s", gherrors.ErrRateLimited, rateLimitErr.Message)
+	}
+
+	var abuseErr *gh.AbuseRateLimitError
+	if errors.As(err, &abuseErr) {
+		return fmt.Errorf("%w: %s", gherrors.ErrRateLimited, abuseErr.Message)
+	}
+
+	// Extract message from GitHub ErrorResponse if available
+	apiMessage := ""
+	var ghErr *gh.ErrorResponse
+	if errors.As(err, &ghErr) {
+		apiMessage = ghErr.Message
 	}
 
 	statusCode := 0
@@ -218,12 +240,31 @@ func wrapAPIError(resp *gh.Response, err error) error {
 
 	switch statusCode {
 	case 401:
+		if apiMessage != "" {
+			return fmt.Errorf("%w: %s", gherrors.ErrUnauthorized, apiMessage)
+		}
 		return gherrors.ErrUnauthorized
-	case 403, 429:
+	case 403:
+		// 403 without a typed rate-limit error is a permission denial
+		if apiMessage != "" {
+			return fmt.Errorf("%w: %s", gherrors.ErrForbidden, apiMessage)
+		}
+		return gherrors.ErrForbidden
+	case 429:
+		if apiMessage != "" {
+			return fmt.Errorf("%w: %s", gherrors.ErrRateLimited, apiMessage)
+		}
 		return gherrors.ErrRateLimited
 	case 404:
+		if apiMessage != "" {
+			return fmt.Errorf("%w: %s", gherrors.ErrNotFound, apiMessage)
+		}
 		return gherrors.ErrNotFound
 	default:
-		return gherrors.NewAPIError(statusCode, "API request failed", err)
+		msg := "API request failed"
+		if apiMessage != "" {
+			msg = apiMessage
+		}
+		return gherrors.NewAPIError(statusCode, msg, err)
 	}
 }

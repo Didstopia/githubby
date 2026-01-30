@@ -54,10 +54,10 @@ func TestWrapAPIError(t *testing.T) {
 			expectedError: gherrors.ErrUnauthorized,
 		},
 		{
-			name:          "403 returns ErrRateLimited",
+			name:          "403 returns ErrForbidden (not rate limited)",
 			statusCode:    403,
 			err:           errors.New("test error"),
-			expectedError: gherrors.ErrRateLimited,
+			expectedError: gherrors.ErrForbidden,
 		},
 		{
 			name:          "429 returns ErrRateLimited",
@@ -209,16 +209,43 @@ func TestGetReleases(t *testing.T) {
 		assert.ErrorIs(t, err, gherrors.ErrNotFound)
 	})
 
-	t.Run("rate limited error", func(t *testing.T) {
+	t.Run("forbidden error (403 without rate limit headers)", func(t *testing.T) {
 		httpmock.Reset()
 
 		httpmock.RegisterResponder("GET", "https://api.github.com/repos/owner/repo/releases",
-			httpmock.NewJsonResponderOrPanic(403, map[string]string{"message": "Rate limit exceeded"}))
+			httpmock.NewJsonResponderOrPanic(403, map[string]string{"message": "Resource not accessible by integration"}))
+
+		client := NewClient("test-token")
+		_, err := client.GetReleases(context.Background(), "owner", "repo")
+
+		assert.ErrorIs(t, err, gherrors.ErrForbidden)
+		// Verify the API message is preserved
+		assert.Contains(t, err.Error(), "Resource not accessible by integration")
+	})
+
+	t.Run("rate limited error (429)", func(t *testing.T) {
+		httpmock.Reset()
+
+		httpmock.RegisterResponder("GET", "https://api.github.com/repos/owner/repo/releases",
+			httpmock.NewJsonResponderOrPanic(429, map[string]string{"message": "Too many requests"}))
 
 		client := NewClient("test-token")
 		_, err := client.GetReleases(context.Background(), "owner", "repo")
 
 		assert.ErrorIs(t, err, gherrors.ErrRateLimited)
+	})
+
+	t.Run("unauthorized error preserves API message", func(t *testing.T) {
+		httpmock.Reset()
+
+		httpmock.RegisterResponder("GET", "https://api.github.com/repos/owner/repo/releases",
+			httpmock.NewJsonResponderOrPanic(401, map[string]string{"message": "Bad credentials"}))
+
+		client := NewClient("test-token")
+		_, err := client.GetReleases(context.Background(), "owner", "repo")
+
+		assert.ErrorIs(t, err, gherrors.ErrUnauthorized)
+		assert.Contains(t, err.Error(), "Bad credentials")
 	})
 }
 

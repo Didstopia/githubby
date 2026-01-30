@@ -13,6 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	gh "github.com/google/go-github/v68/github"
 
+	gherrors "github.com/Didstopia/githubby/internal/errors"
 	"github.com/Didstopia/githubby/internal/git"
 	"github.com/Didstopia/githubby/internal/github"
 	"github.com/Didstopia/githubby/internal/state"
@@ -463,7 +464,13 @@ func (s *SyncProgressScreen) View() string {
 			actualTotal = done
 		}
 		if s.err != nil {
-			content.WriteString(s.styles.Error.Render("Sync completed with errors: " + s.err.Error()))
+			if gherrors.IsUnauthorized(s.err) || gherrors.IsForbidden(s.err) {
+				content.WriteString(s.styles.Error.Render("Authentication failed: " + s.err.Error()))
+				content.WriteString("\n\n")
+				content.WriteString(s.styles.Warning.Render("To fix this, run: githubby logout && githubby login"))
+			} else {
+				content.WriteString(s.styles.Error.Render("Sync completed with errors: " + s.err.Error()))
+			}
 		} else if s.failed > 0 {
 			content.WriteString(s.styles.Warning.Render(fmt.Sprintf("Synced %d repositories with %d failures", actualTotal, s.failed)))
 		} else {
@@ -628,12 +635,21 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 					s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()}
 					return
 				}
+				// Check for auth errors - abort immediately, don't continue with other profiles
+				if gherrors.IsUnauthorized(err) || gherrors.IsForbidden(err) {
+					s.syncProgressChan <- profileSyncProgressUpdate{
+						status: "complete",
+						err:    fmt.Errorf("authentication failed: %w", err),
+					}
+					return
+				}
 				// Send error as a failed repo
 				s.syncProgressChan <- profileSyncProgressUpdate{
 					repoName: fmt.Sprintf("%s/%s", profile.Type, profile.Source),
 					status:   "failed",
 					current:  len(allRepos),
 					total:    0,
+					err:      err,
 				}
 				failed++
 				continue
@@ -672,6 +688,14 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 					// Fetch repo data to get defaultBranch, cloneURL, etc.
 					repoData, err := client.GetRepository(s.ctx, owner, repoName)
 					if err != nil {
+						// Check for auth errors - abort immediately
+						if gherrors.IsUnauthorized(err) || gherrors.IsForbidden(err) {
+							s.syncProgressChan <- profileSyncProgressUpdate{
+								status: "complete",
+								err:    fmt.Errorf("authentication failed: %w", err),
+							}
+							return
+						}
 						// If we can't fetch repo data, still add it but without the optimization data
 						// The sync will fall back to fetching it again
 						allRepos = append(allRepos, repoToSync{

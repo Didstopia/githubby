@@ -2,6 +2,8 @@ package errors
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -96,9 +98,9 @@ func TestIsRateLimited(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "403 status",
-			err:      NewAPIError(403, "rate limited", nil),
-			expected: true,
+			name:     "403 status is NOT rate limited (permission denied)",
+			err:      NewAPIError(403, "permission denied", nil),
+			expected: false,
 		},
 		{
 			name:     "429 status",
@@ -167,5 +169,117 @@ func TestIsNotFound(t *testing.T) {
 				t.Errorf("expected %v, got %v", tt.expected, result)
 			}
 		})
+	}
+}
+
+func TestIsUnauthorized(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "401 status",
+			err:      NewAPIError(401, "bad credentials", nil),
+			expected: true,
+		},
+		{
+			name:     "ErrUnauthorized",
+			err:      ErrUnauthorized,
+			expected: true,
+		},
+		{
+			name:     "wrapped ErrUnauthorized",
+			err:      fmt.Errorf("request failed: %w", ErrUnauthorized),
+			expected: true,
+		},
+		{
+			name:     "403 status",
+			err:      NewAPIError(403, "forbidden", nil),
+			expected: false,
+		},
+		{
+			name:     "other error",
+			err:      errors.New("some error"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsUnauthorized(tt.err)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestIsForbidden(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "403 status",
+			err:      NewAPIError(403, "forbidden", nil),
+			expected: true,
+		},
+		{
+			name:     "ErrForbidden",
+			err:      ErrForbidden,
+			expected: true,
+		},
+		{
+			name:     "wrapped ErrForbidden",
+			err:      fmt.Errorf("request failed: %w", ErrForbidden),
+			expected: true,
+		},
+		{
+			name:     "401 status",
+			err:      NewAPIError(401, "unauthorized", nil),
+			expected: false,
+		},
+		{
+			name:     "other error",
+			err:      errors.New("some error"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsForbidden(tt.err)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestNewAuthErrorWithReason(t *testing.T) {
+	err := NewAuthErrorWithReason("token expired")
+	if !strings.Contains(err.Error(), "token expired") {
+		t.Error("expected error to contain the reason")
+	}
+	if !strings.Contains(err.Error(), "githubby logout") {
+		t.Error("expected error to contain logout instruction")
+	}
+	if !strings.Contains(err.Error(), "githubby login") {
+		t.Error("expected error to contain login instruction")
+	}
+}
+
+func TestNewExpiredTokenError(t *testing.T) {
+	err := NewExpiredTokenError("keychain")
+	if !strings.Contains(err.Error(), "keychain") {
+		t.Error("expected error to contain token source")
+	}
+	if !strings.Contains(err.Error(), "invalid or expired") {
+		t.Error("expected error to contain 'invalid or expired'")
+	}
+	if !strings.Contains(err.Error(), "githubby logout") {
+		t.Error("expected error to contain logout instruction")
 	}
 }
