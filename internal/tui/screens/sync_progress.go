@@ -3,6 +3,7 @@ package screens
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -486,7 +487,16 @@ func (s *SyncProgressScreen) View() string {
 				content.WriteString("\n")
 				content.WriteString(s.styles.Error.Render("Failed repositories:"))
 				content.WriteString("\n")
-				for repoName, errMsg := range s.failedRepos {
+				
+				// Sort repo names for consistent display order
+				repoNames := make([]string, 0, len(s.failedRepos))
+				for repoName := range s.failedRepos {
+					repoNames = append(repoNames, repoName)
+				}
+				sort.Strings(repoNames)
+				
+				for _, repoName := range repoNames {
+					errMsg := s.failedRepos[repoName]
 					content.WriteString(fmt.Sprintf("  • %s\n", repoName))
 					content.WriteString(fmt.Sprintf("    %s\n", s.styles.Muted.Render(errMsg)))
 				}
