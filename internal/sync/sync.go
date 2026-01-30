@@ -303,11 +303,15 @@ func (s *Syncer) syncWorker(ctx context.Context, jobs <-chan *gh.Repository, res
 
 		if s.opts.DryRun {
 			if s.git.IsGitRepo(localPath) {
-				fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
+				if s.opts.Verbose {
+					fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
+				}
 				s.reportProgress(repoName, ProgressUpdated, "dry-run")
 				results <- syncResult{repoName: repoName, status: ProgressUpdated}
 			} else {
-				fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
+				if s.opts.Verbose {
+					fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
+				}
 				s.reportProgress(repoName, ProgressCloned, "dry-run")
 				results <- syncResult{repoName: repoName, status: ProgressCloned}
 			}
@@ -379,11 +383,15 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 
 	if s.opts.DryRun {
 		if s.git.IsGitRepo(localPath) {
-			fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
+			if s.opts.Verbose {
+				fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
+			}
 			s.reportProgress(repoName, ProgressUpdated, "dry-run")
 			result.Updated = append(result.Updated, repoName)
 		} else {
-			fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
+			if s.opts.Verbose {
+				fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
+			}
 			s.reportProgress(repoName, ProgressCloned, "dry-run")
 			result.Cloned = append(result.Cloned, repoName)
 		}
@@ -400,7 +408,9 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 		if err != nil {
 			result.Failed[repoName] = err
 			s.reportProgress(repoName, ProgressFailed, err.Error())
-			fmt.Printf("Failed to update %s: %v\n", repoName, err)
+			if s.opts.Verbose {
+				fmt.Printf("Failed to update %s: %v\n", repoName, err)
+			}
 		} else {
 			if status == ProgressUpToDate {
 				result.UpToDate = append(result.UpToDate, repoName)
@@ -421,7 +431,9 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 		if err := s.cloneRepo(ctx, repo, localPath); err != nil {
 			result.Failed[repoName] = err
 			s.reportProgress(repoName, ProgressFailed, err.Error())
-			fmt.Printf("Failed to clone %s: %v\n", repoName, err)
+			if s.opts.Verbose {
+				fmt.Printf("Failed to clone %s: %v\n", repoName, err)
+			}
 		} else {
 			result.Cloned = append(result.Cloned, repoName)
 			s.reportProgress(repoName, ProgressCloned, "")
