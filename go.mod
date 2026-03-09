@@ -1,6 +1,6 @@
 module github.com/Didstopia/githubby
 
-go 1.24.11
+go 1.25.0
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -25,7 +25,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
 	github.com/zalando/go-keyring v0.2.6
-	golang.org/x/oauth2 v0.35.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 )
