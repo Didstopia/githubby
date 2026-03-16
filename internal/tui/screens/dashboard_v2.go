@@ -436,13 +436,13 @@ func (d *DashboardV2) renderSyncStatus() string {
 		if len(d.profiles) != 1 {
 			profileWord = "profiles"
 		}
-		status.WriteString(fmt.Sprintf(" %d %s", len(d.profiles), profileWord))
+		fmt.Fprintf(&status, " %d %s", len(d.profiles), profileWord)
 
 		// Pending count
 		if d.pendingSync > 0 {
 			status.WriteString("   ")
 			status.WriteString(d.styles.Warning.Render("●"))
-			status.WriteString(fmt.Sprintf(" %d pending", d.pendingSync))
+			fmt.Fprintf(&status, " %d pending", d.pendingSync)
 		}
 
 		// Archived count (repos preserved locally but no longer on remote)

@@ -491,7 +491,7 @@ func (c *CleanScreen) View() string {
 
 	case cleanModeDeleting:
 		content.WriteString(c.spinner.View())
-		content.WriteString(fmt.Sprintf(" Deleting releases... %d/%d", c.deleteIdx, c.countSelected()))
+		fmt.Fprintf(&content, " Deleting releases... %d/%d", c.deleteIdx, c.countSelected())
 		content.WriteString("\n\n")
 		if c.deleted > 0 {
 			content.WriteString(c.styles.Success.Render(fmt.Sprintf("%d deleted", c.deleted)))
