@@ -1085,14 +1085,14 @@ func (w *SyncWizard) viewConfirm() string {
 	var summary strings.Builder
 	summary.WriteString(w.styles.Info.Render("Summary:"))
 	summary.WriteString("\n")
-	summary.WriteString(fmt.Sprintf("  Source: %s/%s\n", w.sourceType, w.sourceName))
+	fmt.Fprintf(&summary, "  Source: %s/%s\n", w.sourceType, w.sourceName)
 	if w.selectAllRepos {
-		summary.WriteString(fmt.Sprintf("  Repositories: All (%d repos, auto-updates with new repos)\n", len(w.selectedRepos)))
+		fmt.Fprintf(&summary, "  Repositories: All (%d repos, auto-updates with new repos)\n", len(w.selectedRepos))
 	} else {
-		summary.WriteString(fmt.Sprintf("  Repositories: %d selected\n", len(w.selectedRepos)))
+		fmt.Fprintf(&summary, "  Repositories: %d selected\n", len(w.selectedRepos))
 	}
-	summary.WriteString(fmt.Sprintf("  Target: %s\n", w.targetDir))
-	summary.WriteString(fmt.Sprintf("  Private repos: %v\n", w.includePrivate))
+	fmt.Fprintf(&summary, "  Target: %s\n", w.targetDir)
+	fmt.Fprintf(&summary, "  Private repos: %v\n", w.includePrivate)
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", summary.String(), "", w.confirmForm.View())
 }
@@ -1158,19 +1158,19 @@ func (w *SyncWizard) viewComplete() string {
 	content.WriteString("\n")
 
 	if cloned > 0 {
-		content.WriteString(fmt.Sprintf("  %s Cloned: %d\n", w.styles.Success.Render("●"), cloned))
+		fmt.Fprintf(&content, "  %s Cloned: %d\n", w.styles.Success.Render("●"), cloned)
 	}
 	if updated > 0 {
-		content.WriteString(fmt.Sprintf("  %s Updated: %d\n", w.styles.Success.Render("●"), updated))
+		fmt.Fprintf(&content, "  %s Updated: %d\n", w.styles.Success.Render("●"), updated)
 	}
 	if skipped > 0 {
-		content.WriteString(fmt.Sprintf("  %s Skipped: %d\n", w.styles.Warning.Render("●"), skipped))
+		fmt.Fprintf(&content, "  %s Skipped: %d\n", w.styles.Warning.Render("●"), skipped)
 	}
 	if failed > 0 {
-		content.WriteString(fmt.Sprintf("  %s Failed: %d\n", w.styles.Error.Render("●"), failed))
+		fmt.Fprintf(&content, "  %s Failed: %d\n", w.styles.Error.Render("●"), failed)
 	}
 	if archived > 0 {
-		content.WriteString(fmt.Sprintf("  %s Archived: %d (preserved locally, no longer on remote)\n", w.styles.Info.Render("●"), archived))
+		fmt.Fprintf(&content, "  %s Archived: %d (preserved locally, no longer on remote)\n", w.styles.Info.Render("●"), archived)
 	}
 
 	if cloned == 0 && updated == 0 && skipped == 0 && failed == 0 && archived == 0 {

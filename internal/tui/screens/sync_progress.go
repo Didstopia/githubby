@@ -409,12 +409,12 @@ func (s *SyncProgressScreen) View() string {
 	if total > 0 {
 		pct := float64(done) / float64(total)
 		content.WriteString(s.progress.ViewAs(pct))
-		content.WriteString(fmt.Sprintf(" %d/%d repos", done, total))
+		fmt.Fprintf(&content, " %d/%d repos", done, total)
 
 		// Show pre-calculated ETA (calculated in Update when repos complete)
 		// This prevents ETA from going up while waiting for batch completions
 		if s.syncing && s.lastDisplayedETA > 5*time.Second {
-			content.WriteString(fmt.Sprintf(" • ~%s remaining", humanizeDuration(s.lastDisplayedETA)))
+			fmt.Fprintf(&content, " • ~%s remaining", humanizeDuration(s.lastDisplayedETA))
 		}
 		content.WriteString("\n\n")
 	}
@@ -425,33 +425,33 @@ func (s *SyncProgressScreen) View() string {
 		if s.collecting {
 			// Show collecting phase with count
 			if s.collectingCount > 0 {
-				content.WriteString(fmt.Sprintf(" Collecting repositories... (%d found)", s.collectingCount))
+				fmt.Fprintf(&content, " Collecting repositories... (%d found)", s.collectingCount)
 			} else {
 				content.WriteString(" Collecting repositories from GitHub...")
 			}
 		} else if s.currentRepo != "" {
 			// Show current repo being synced with running totals
-			content.WriteString(fmt.Sprintf(" [%d/%d] Syncing %s...", done+1, total, s.currentRepo))
+			fmt.Fprintf(&content, " [%d/%d] Syncing %s...", done+1, total, s.currentRepo)
 			// Show running totals if any work has been done
 			if s.cloned > 0 || s.updated > 0 || s.upToDate > 0 {
-				content.WriteString(fmt.Sprintf(" (cloned: %d, updated: %d, up-to-date: %d)", s.cloned, s.updated, s.upToDate))
+				fmt.Fprintf(&content, " (cloned: %d, updated: %d, up-to-date: %d)", s.cloned, s.updated, s.upToDate)
 			}
 		} else if len(s.profiles) > 1 {
 			if total > 0 {
-				content.WriteString(fmt.Sprintf(" Syncing %d repositories across %d profiles...", total, len(s.profiles)))
+				fmt.Fprintf(&content, " Syncing %d repositories across %d profiles...", total, len(s.profiles))
 			} else {
-				content.WriteString(fmt.Sprintf(" Syncing all repositories across %d profiles...", len(s.profiles)))
+				fmt.Fprintf(&content, " Syncing all repositories across %d profiles...", len(s.profiles))
 			}
 		} else if s.profile != nil {
 			if total > 0 {
-				content.WriteString(fmt.Sprintf(" Syncing %d repositories to %s...", total, s.profile.TargetDir))
+				fmt.Fprintf(&content, " Syncing %d repositories to %s...", total, s.profile.TargetDir)
 			} else if s.profile.SyncAllRepos {
-				content.WriteString(fmt.Sprintf(" Syncing all %s/%s repositories to %s...", s.profile.Type, s.profile.Source, s.profile.TargetDir))
+				fmt.Fprintf(&content, " Syncing all %s/%s repositories to %s...", s.profile.Type, s.profile.Source, s.profile.TargetDir)
 			} else {
-				content.WriteString(fmt.Sprintf(" Syncing repositories to %s...", s.profile.TargetDir))
+				fmt.Fprintf(&content, " Syncing repositories to %s...", s.profile.TargetDir)
 			}
 		} else {
-			content.WriteString(fmt.Sprintf(" Syncing %d repositories...", total))
+			fmt.Fprintf(&content, " Syncing %d repositories...", total)
 		}
 		content.WriteString("\n\n")
 	}
@@ -482,19 +482,19 @@ func (s *SyncProgressScreen) View() string {
 		content.WriteString(s.styles.Info.Render("Results:"))
 		content.WriteString("\n")
 		if s.cloned > 0 {
-			content.WriteString(fmt.Sprintf("  %s Cloned: %d\n", s.styles.Success.Render("●"), s.cloned))
+			fmt.Fprintf(&content, "  %s Cloned: %d\n", s.styles.Success.Render("●"), s.cloned)
 		}
 		if s.updated > 0 {
-			content.WriteString(fmt.Sprintf("  %s Updated: %d\n", s.styles.Success.Render("●"), s.updated))
+			fmt.Fprintf(&content, "  %s Updated: %d\n", s.styles.Success.Render("●"), s.updated)
 		}
 		if s.upToDate > 0 {
-			content.WriteString(fmt.Sprintf("  %s Up-to-date: %d\n", s.styles.Success.Render("●"), s.upToDate))
+			fmt.Fprintf(&content, "  %s Up-to-date: %d\n", s.styles.Success.Render("●"), s.upToDate)
 		}
 		if s.skipped > 0 {
-			content.WriteString(fmt.Sprintf("  %s Skipped: %d\n", s.styles.Warning.Render("●"), s.skipped))
+			fmt.Fprintf(&content, "  %s Skipped: %d\n", s.styles.Warning.Render("●"), s.skipped)
 		}
 		if s.failed > 0 {
-			content.WriteString(fmt.Sprintf("  %s Failed: %d\n", s.styles.Error.Render("●"), s.failed))
+			fmt.Fprintf(&content, "  %s Failed: %d\n", s.styles.Error.Render("●"), s.failed)
 			// Show detailed error messages for failed repos
 			if len(s.failedRepos) > 0 {
 				content.WriteString("\n")
@@ -510,13 +510,13 @@ func (s *SyncProgressScreen) View() string {
 
 				for _, repoName := range repoNames {
 					errMsg := s.failedRepos[repoName]
-					content.WriteString(fmt.Sprintf("  • %s\n", repoName))
-					content.WriteString(fmt.Sprintf("    %s\n", s.styles.Muted.Render(errMsg)))
+					fmt.Fprintf(&content, "  • %s\n", repoName)
+					fmt.Fprintf(&content, "    %s\n", s.styles.Muted.Render(errMsg))
 				}
 			}
 		}
 		if s.archived > 0 {
-			content.WriteString(fmt.Sprintf("  %s Archived: %d (preserved locally, no longer on remote)\n", s.styles.Info.Render("●"), s.archived))
+			fmt.Fprintf(&content, "  %s Archived: %d (preserved locally, no longer on remote)\n", s.styles.Info.Render("●"), s.archived)
 		}
 		if s.cloned == 0 && s.updated == 0 && s.upToDate == 0 && s.skipped == 0 && s.failed == 0 && s.archived == 0 {
 			content.WriteString(s.styles.Muted.Render("  No changes - all repositories up to date\n"))
