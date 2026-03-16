@@ -54,6 +54,20 @@ changelog:
       - Merge pull request
       - Merge branch
 
+brews:
+  - repository:
+      owner: Didstopia
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/Didstopia/githubby"
+    description: "A powerful CLI and TUI utility for syncing GitHub repositories locally"
+    license: "MIT"
+    install: |
+      bin.install "githubby"
+    test: |
+      system "#{bin}/githubby", "version"
+
 release:
   github:
     owner: Didstopia

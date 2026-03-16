@@ -50,7 +50,13 @@ That's it! The interactive setup wizard will guide you through:
 
 ## Installation
 
-### Download Binary (Recommended)
+### Homebrew (macOS / Linux)
+
+```bash
+brew install Didstopia/tap/githubby
+```
+
+### Download Binary
 
 Download the latest release for your platform from the **[releases page](https://github.com/Didstopia/githubby/releases/latest)**:
 
