@@ -24,14 +24,13 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	github.com/zalando/go-keyring v0.2.6
+	github.com/zalando/go-keyring v0.2.7
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/text v0.35.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
-	al.essio.dev/pkg/shellescape v1.6.0 // indirect
 	code.gitea.io/sdk/gitea v0.23.2 // indirect
 	github.com/42wim/httpsig v1.2.3 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
