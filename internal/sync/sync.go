@@ -509,7 +509,17 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 	// Clone the repository using HTTPS (token auth is handled by Git instance)
 	cloneURL := repo.GetCloneURL()
 
-	if err := s.git.Clone(ctx, cloneURL, localPath); err != nil {
+	// Retry clone on transient failures (e.g., Dropbox file locking on Windows)
+	if err := withGitRetry(ctx, DefaultGitRetryConfig(),
+		func() error {
+			return s.git.Clone(ctx, cloneURL, localPath)
+		},
+		func() error {
+			// Remove partial clone directory before retrying
+			return os.RemoveAll(localPath)
+		},
+		isTransientGitError,
+	); err != nil {
 		return err
 	}
 
@@ -580,7 +590,14 @@ func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath st
 	// Fetch all branches from all remotes (for complete backup of all branches)
 	// Using fetch instead of pull so we update all remote-tracking branches
 	// without modifying the working directory
-	if err := s.git.FetchAll(ctx, localPath); err != nil {
+	// Retry on transient failures (e.g., Dropbox file locking on Windows)
+	if err := withGitRetry(ctx, DefaultGitRetryConfig(),
+		func() error {
+			return s.git.FetchAll(ctx, localPath)
+		},
+		nil, // No cleanup needed for fetch
+		isTransientGitError,
+	); err != nil {
 		return ProgressFailed, fmt.Errorf("fetch failed: %w", err)
 	}
 
