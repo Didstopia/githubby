@@ -368,7 +368,7 @@ filter-count: -1
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.26+
 - Git
 
 ### Build & Test
