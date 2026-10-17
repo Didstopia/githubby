@@ -379,6 +379,33 @@ func TestListUserRepos(t *testing.T) {
 		assert.Len(t, result, 2)
 	})
 
+	t.Run("lists own private repos via /user/repos", func(t *testing.T) {
+		httpmock.Reset()
+
+		httpmock.RegisterResponder("GET", "https://api.github.com/user",
+			httpmock.NewJsonResponderOrPanic(200, map[string]interface{}{"login": "TestUser"}))
+		httpmock.RegisterResponder("GET", "https://api.github.com/users/testuser/repos",
+			httpmock.NewJsonResponderOrPanic(200, []map[string]interface{}{
+				{"id": 1, "name": "repo1", "full_name": "testuser/repo1", "private": false},
+			}))
+		httpmock.RegisterResponder("GET", "https://api.github.com/user/repos",
+			func(req *http.Request) (*http.Response, error) {
+				assert.Equal(t, "all", req.URL.Query().Get("visibility"))
+				assert.Equal(t, "owner", req.URL.Query().Get("affiliation"))
+				return httpmock.NewJsonResponse(200, []map[string]interface{}{
+					{"id": 1, "name": "repo1", "full_name": "testuser/repo1", "private": false},
+					{"id": 2, "name": "secret", "full_name": "testuser/secret", "private": true},
+				})
+			})
+
+		client := NewClient("test-token")
+		opts := &ListOptions{IncludePrivate: true, PerPage: 100}
+		result, err := client.ListUserRepos(context.Background(), "testuser", opts)
+
+		require.NoError(t, err)
+		assert.Len(t, result, 2)
+	})
+
 	t.Run("not found error", func(t *testing.T) {
 		httpmock.Reset()
 

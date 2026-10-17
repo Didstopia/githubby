@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	gh "github.com/google/go-github/v68/github"
 	"golang.org/x/oauth2"
@@ -83,6 +84,11 @@ func (c *client) ListUserRepos(ctx context.Context, username string, opts *ListO
 		opts = DefaultListOptions()
 	}
 
+	// /users/{name}/repos only lists public repos, so fetch our own via /user/repos
+	if opts.IncludePrivate && c.isAuthenticatedUser(ctx, username) {
+		return c.listAuthenticatedUserRepos(ctx, opts)
+	}
+
 	var allRepos []*gh.Repository
 
 	ghOpts := &gh.RepositoryListByUserOptions{
@@ -105,6 +111,45 @@ func (c *client) ListUserRepos(ctx context.Context, username string, opts *ListO
 			}
 			allRepos = append(allRepos, repo)
 		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		ghOpts.Page = resp.NextPage
+	}
+
+	return allRepos, nil
+}
+
+// isAuthenticatedUser reports whether username is the token's own account
+func (c *client) isAuthenticatedUser(ctx context.Context, username string) bool {
+	user, _, err := c.ghClient.Users.Get(ctx, "")
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(user.GetLogin(), username)
+}
+
+// listAuthenticatedUserRepos returns all repositories owned by the authenticated user
+func (c *client) listAuthenticatedUserRepos(ctx context.Context, opts *ListOptions) ([]*gh.Repository, error) {
+	var allRepos []*gh.Repository
+
+	ghOpts := &gh.RepositoryListByAuthenticatedUserOptions{
+		Visibility:  "all",
+		Affiliation: "owner",
+		ListOptions: gh.ListOptions{
+			Page:    1,
+			PerPage: opts.PerPage,
+		},
+	}
+
+	for {
+		repos, resp, err := c.ghClient.Repositories.ListByAuthenticatedUser(ctx, ghOpts)
+		if err != nil {
+			return nil, wrapAPIError(resp, err)
+		}
+
+		allRepos = append(allRepos, repos...)
 
 		if resp.NextPage == 0 {
 			break
