@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -19,6 +20,12 @@ import (
 
 // autoUpdateEnabled controls whether auto-update on launch is enabled
 var autoUpdateEnabled = true
+
+// noUpdateEnv is the env var that turns off update checks (e.g. for cron, Docker, Homebrew)
+const noUpdateEnv = "GITHUBBY_NO_UPDATE"
+
+// dockerEnvPath exists inside Docker containers, where the binary must not replace itself
+var dockerEnvPath = "/.dockerenv"
 
 // Version information (set via ldflags)
 var (
@@ -76,6 +83,8 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&dryRun, "dry-run", "D", false, "Simulate running without making changes")
 	rootCmd.PersistentFlags().StringVarP(&token, "token", "t", "", "GitHub API token")
+	// Read from os.Args before cobra runs; registered so cobra accepts it
+	rootCmd.PersistentFlags().Bool("no-update", false, "Skip the update check on launch (or set "+noUpdateEnv+"=1)")
 
 	// Bind to viper after initialization
 }
@@ -152,6 +161,10 @@ func shouldAutoUpdate() bool {
 		return false
 	}
 
+	if updateDisabled(os.Args[1:]) {
+		return false
+	}
+
 	// Skip for certain commands
 	if len(os.Args) > 1 {
 		cmd := os.Args[1]
@@ -167,10 +180,26 @@ func shouldAutoUpdate() bool {
 	return true
 }
 
+// updateDisabled reports whether the user or the environment opted out of update checks
+func updateDisabled(args []string) bool {
+	if off, err := strconv.ParseBool(os.Getenv(noUpdateEnv)); err == nil && off {
+		return true
+	}
+	for _, arg := range args {
+		if arg == "--no-update" || arg == "--no-update=true" {
+			return true
+		}
+	}
+	if _, err := os.Stat(dockerEnvPath); err == nil {
+		return true
+	}
+	return false
+}
+
 // checkAndAutoUpdate checks for updates and performs auto-update if available
 // Returns true if the app was restarted (caller should exit)
 func checkAndAutoUpdate(ctx context.Context) bool {
-	fmt.Println("Checking for updates...")
+	fmt.Fprintln(os.Stderr, "Checking for updates...")
 
 	// Create a timeout context for the update check
 	checkCtx, checkCancel := context.WithTimeout(ctx, 10*time.Second)
@@ -186,7 +215,7 @@ func checkAndAutoUpdate(ctx context.Context) bool {
 		return false
 	}
 
-	fmt.Printf("Updating to v%s...\n", result.LatestVersion)
+	fmt.Fprintf(os.Stderr, "Updating to v%s...\n", result.LatestVersion)
 
 	// Perform the update with a longer timeout
 	updateCtx, updateCancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -194,16 +223,16 @@ func checkAndAutoUpdate(ctx context.Context) bool {
 
 	if _, err := update.Update(updateCtx, Version); err != nil {
 		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
-		fmt.Println("Continuing with current version...")
+		fmt.Fprintln(os.Stderr, "Continuing with current version...")
 		return false
 	}
 
-	fmt.Println("Update complete! Restarting...")
+	fmt.Fprintln(os.Stderr, "Update complete! Restarting...")
 	time.Sleep(500 * time.Millisecond) // Brief pause for user to see message
 
 	if err := update.Restart(); err != nil {
 		fmt.Fprintf(os.Stderr, "Restart failed: %v\n", err)
-		fmt.Println("Please restart the application manually.")
+		fmt.Fprintln(os.Stderr, "Please restart the application manually.")
 		return false
 	}
 
@@ -225,8 +254,8 @@ func startBackgroundUpdateCheck(ctx context.Context) <-chan *update.Result {
 		}
 	}
 
-	// Skip for dev builds
-	if Version == "" || Version == "dev" {
+	// Skip for dev builds or when updates are turned off
+	if Version == "" || Version == "dev" || updateDisabled(os.Args[1:]) {
 		close(resultChan)
 		return resultChan
 	}
