@@ -36,8 +36,8 @@ func (f *fakeScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	f.msgs = append(f.msgs, msg)
 	return f, f.cmd
 }
-func (f *fakeScreen) View() string           { return "view of " + f.title }
-func (f *fakeScreen) Title() string          { return f.title }
+func (f *fakeScreen) View() string             { return "view of " + f.title }
+func (f *fakeScreen) Title() string            { return f.title }
 func (f *fakeScreen) ShortHelp() []key.Binding { return f.help }
 
 // otherModel is a tea.Model that is not a ScreenModel, to cover the type-assertion miss.
