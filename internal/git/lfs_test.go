@@ -137,6 +137,8 @@ func TestLFS_Initialize(t *testing.T) {
 			t.Skip("git-lfs is not installed")
 		}
 
+		// git lfs install also sets up hooks in the current repo; keep it out of ours
+		t.Chdir(t.TempDir())
 		lfs := &LFS{LFSPath: lfsPath, Git: g}
 
 		err := lfs.Initialize(context.Background())
@@ -213,6 +215,7 @@ func TestLFS_EnsureLFS(t *testing.T) {
 			t.Skip("git-lfs is not installed")
 		}
 
+		t.Chdir(t.TempDir())
 		lfs := &LFS{LFSPath: lfsPath, Git: g}
 
 		err := lfs.EnsureLFS(context.Background())
