@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -148,6 +149,9 @@ func TestDownloadAsset_FileSystemFailures(t *testing.T) {
 	})
 
 	t.Run("temp file cannot be created", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows ignores read-only bits on directories")
+		}
 		e, target, _ := newTestExporter(t)
 		registerRepo()
 		assets := filepath.Join(RepoDir(target, "owner", "repo"), "releases", "v1_beta")

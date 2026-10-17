@@ -741,10 +741,18 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(b)
 }
 
+// noKeyboard runs programs without input, so they never wait on a console read.
+func noKeyboard(t *testing.T) {
+	t.Helper()
+	extraProgramOptions = []tea.ProgramOption{tea.WithInput(nil)}
+	t.Cleanup(func() { extraProgramOptions = nil })
+}
+
 func TestRunAppInstance_PicksStartScreenAndReportsRestartFailure(t *testing.T) {
 	// A cancelled context makes the program exit straight away, so no terminal is needed.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	noKeyboard(t)
 
 	t.Run("unauthenticated starts on onboarding", func(t *testing.T) {
 		a := NewApp()

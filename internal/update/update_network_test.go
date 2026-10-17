@@ -242,6 +242,9 @@ func TestUpdate_Success(t *testing.T) {
 }
 
 func TestUpdate_ApplyFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ignores read-only bits on directories")
+	}
 	archive := makeTarGz(t, "githubby", []byte("new binary"))
 	srv := &releaseServer{version: "1.2.0", assetName: platformAssetName("1.2.0"), asset: archive}
 	fakeNetwork(t, srv.handler(t))

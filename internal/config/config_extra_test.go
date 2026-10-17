@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/mitchellh/go-homedir"
@@ -15,6 +16,7 @@ func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows reads the home directory from here
 	prev := homedir.DisableCache
 	homedir.DisableCache = true
 	t.Cleanup(func() { homedir.DisableCache = prev })
@@ -35,7 +37,9 @@ func TestEnsureConfigFile(t *testing.T) {
 	require.NoError(t, EnsureConfigFile())
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no Unix permission bits
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 
 	// A second call keeps the existing file untouched.
 	require.NoError(t, os.WriteFile(path, []byte("verbose: true\n"), 0o600))

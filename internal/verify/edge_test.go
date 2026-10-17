@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -153,6 +154,9 @@ func TestCheckSubmodules_StatusErrorAndConflict(t *testing.T) {
 	})
 
 	t.Run("merge conflict in a submodule fails", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("fake git is a shell script")
+		}
 		gitPath := filepath.Join(t.TempDir(), "git")
 		require.NoError(t, os.WriteFile(gitPath, []byte("#!/bin/sh\necho 'Uabcdef0123456789 lib/x'\n"), 0755))
 		repo := t.TempDir()

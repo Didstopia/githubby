@@ -759,11 +759,15 @@ type OnboardingResult struct {
 	Username        string
 }
 
+// extraProgramOptions lets tests turn off keyboard input. Without a terminal on stdin,
+// Bubble Tea opens the console itself, and on Windows that read can't be cancelled.
+var extraProgramOptions []tea.ProgramOption
+
 // RunOnboardingProgram runs the onboarding as a standalone program
 func RunOnboardingProgram(ctx context.Context) (*OnboardingResult, error) {
 	onboarding := NewOnboarding(ctx)
 
-	p := tea.NewProgram(onboarding, tea.WithAltScreen(), tea.WithContext(ctx))
+	p := tea.NewProgram(onboarding, append([]tea.ProgramOption{tea.WithAltScreen(), tea.WithContext(ctx)}, extraProgramOptions...)...)
 	model, err := p.Run()
 	if err != nil {
 		return nil, err

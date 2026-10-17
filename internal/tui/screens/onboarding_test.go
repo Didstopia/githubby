@@ -480,5 +480,7 @@ func TestOB_SetSyncConfigDefaults_NoCwd(t *testing.T) {
 func TestOB_RunOnboardingProgram(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	extraProgramOptions = []tea.ProgramOption{tea.WithInput(nil)} // never wait on a console read
+	t.Cleanup(func() { extraProgramOptions = nil })
 	assert.NotPanics(t, func() { _, _ = RunOnboardingProgram(ctx) })
 }

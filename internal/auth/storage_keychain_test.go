@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/mitchellh/go-homedir"
@@ -99,6 +100,7 @@ func TestStorage_GetStorageLocation_Keychain(t *testing.T) {
 func TestStorage_ConfigPath_DefaultsToHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows reads the home directory from here
 	homedir.DisableCache = true
 	t.Cleanup(func() { homedir.DisableCache = false })
 
@@ -111,7 +113,9 @@ func TestStorage_ConfigPath_DefaultsToHome(t *testing.T) {
 
 	info, err := os.Stat(filepath.Join(home, ConfigFileName))
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no Unix permission bits
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 }
 
 func TestStorage_ConfigErrors(t *testing.T) {

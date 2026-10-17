@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ func newTestStorage(t *testing.T) (*Storage, string) {
 func TestNewStorage_UsesHomeDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows reads the home directory from here
 	s, err := NewStorage()
 	require.NoError(t, err)
 	require.NoError(t, s.SetDefaults("/t", "u"))
@@ -38,6 +40,7 @@ func TestNewStorage_UsesHomeDir(t *testing.T) {
 
 func TestNewStorage_NoHome(t *testing.T) {
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	t.Setenv("USERPROFILE", "")
 	t.Setenv("home", "")
 	_, err := NewStorage()
@@ -87,7 +90,9 @@ func TestStorage_SaveRoundTripAndPermissions(t *testing.T) {
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no Unix permission bits
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
 	_, err = os.Stat(path + ".tmp")
 	assert.True(t, os.IsNotExist(err), "temp file must be gone after save")
 

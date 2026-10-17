@@ -3,6 +3,7 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -73,5 +74,9 @@ func TestRestart_FailsForMissingBinary(t *testing.T) {
 	withArgs0(t, filepath.Join(t.TempDir(), "does-not-exist"))
 	err := Restart()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to exec")
+	if runtime.GOOS == "windows" {
+		assert.Contains(t, err.Error(), "failed to run new process")
+	} else {
+		assert.Contains(t, err.Error(), "failed to exec")
+	}
 }

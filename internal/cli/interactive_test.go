@@ -107,9 +107,8 @@ func TestRunTUI_BrokenStateFileStartsFresh(t *testing.T) {
 func TestRunTUI_NoHomeDirectory(t *testing.T) {
 	testEnv(t)
 	t.Setenv("HOME", "")
-	orig := isInteractive
-	isInteractive = func() bool { return true }
-	t.Cleanup(func() { isInteractive = orig })
+	t.Setenv("USERPROFILE", "") // Windows reads the home directory from here
+	fakeTUI(t, nil)
 
 	err := RunTUI()
 	require.Error(t, err)

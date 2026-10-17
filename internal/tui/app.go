@@ -970,6 +970,10 @@ func joinWithSeparator(items []string, sep string) string {
 
 // Message types and command helpers are defined in messages.go
 
+// extraProgramOptions lets tests turn off keyboard input. Without a terminal on stdin,
+// Bubble Tea opens the console itself, and on Windows that read can't be cancelled.
+var extraProgramOptions []tea.ProgramOption
+
 // RunAppInstance runs an existing App instance
 func RunAppInstance(ctx context.Context, app *App) error {
 	// Determine initial screen based on auth state AND config completeness
@@ -988,7 +992,7 @@ func RunAppInstance(ctx context.Context, app *App) error {
 	app.currentScreen = startScreen
 
 	// Run the program
-	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithContext(ctx))
+	p := tea.NewProgram(app, append([]tea.ProgramOption{tea.WithAltScreen(), tea.WithContext(ctx)}, extraProgramOptions...)...)
 	_, err := p.Run()
 
 	// Check if we need to restart after the TUI has cleanly exited

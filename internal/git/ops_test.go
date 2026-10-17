@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -164,6 +165,9 @@ func TestLFSObjectOK_UnreadableObject(t *testing.T) {
 }
 
 func TestRepoUsesLFS_UnreadableAttributes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permission bits")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads everything")
 	}
@@ -174,6 +178,9 @@ func TestRepoUsesLFS_UnreadableAttributes(t *testing.T) {
 }
 
 func TestSubmoduleUpdate_SyncFailureIsReported(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake git is a shell script")
+	}
 	gitPath := filepath.Join(t.TempDir(), "git")
 	require.NoError(t, os.WriteFile(gitPath, []byte("#!/bin/sh\necho sync broke >&2\nexit 1\n"), 0755))
 	repo := t.TempDir()
@@ -185,6 +192,9 @@ func TestSubmoduleUpdate_SyncFailureIsReported(t *testing.T) {
 }
 
 func TestSubmoduleStatus_SkipsMalformedLines(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake git is a shell script")
+	}
 	// A stand-in git that prints odd lines: a bare SHA, a short line and a good one
 	dir := t.TempDir()
 	script := "#!/bin/sh\nprintf ' abc\\n\\n+def lib/x (heads/main)\\n'\n"

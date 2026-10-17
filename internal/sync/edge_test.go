@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -306,6 +307,9 @@ func TestDetectArchived_Edges(t *testing.T) {
 	})
 
 	t.Run("unreadable folders are skipped", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows has no Unix permission bits")
+		}
 		if os.Geteuid() == 0 {
 			t.Skip("root reads everything")
 		}
@@ -335,6 +339,9 @@ func usesLFSUpstream(t *testing.T) string {
 }
 
 func TestCloneAndPull_LFSNotAvailableIsNotFatal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Git for Windows can't clone with an empty PATH")
+	}
 	g, err := git.NewQuiet()
 	require.NoError(t, err)
 	up := usesLFSUpstream(t)
@@ -412,6 +419,9 @@ func fastRetries(t *testing.T) {
 // busyGit is a git whose every command fails with a transient-looking error
 func busyGit(t *testing.T) *git.Git {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("fake git is a shell script")
+	}
 	script := filepath.Join(t.TempDir(), "git")
 	require.NoError(t, os.WriteFile(script, []byte("#!/bin/sh\n# leave a partial clone behind\nfor last; do :; done\nmkdir -p \"$last\" 2>/dev/null\necho 'file is locked' >&2\nexit 1\n"), 0755))
 	return &git.Git{GitPath: script, Quiet: true}

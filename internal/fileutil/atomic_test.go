@@ -3,6 +3,7 @@ package fileutil
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,7 +20,9 @@ func TestWriteFileAtomic(t *testing.T) {
 	assert.Equal(t, "two", string(got))
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	if runtime.GOOS != "windows" { // Windows has no Unix permission bits
+		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm())
+	}
 
 	entries, err := os.ReadDir(filepath.Dir(path))
 	require.NoError(t, err)
@@ -33,6 +36,9 @@ func TestWriteFileAtomic_Errors(t *testing.T) {
 		assert.Error(t, WriteFileAtomic(filepath.Join(blocker, "x"), []byte("a"), 0o600))
 	})
 	t.Run("directory is not writable", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows ignores read-only bits on directories")
+		}
 		if os.Geteuid() == 0 {
 			t.Skip("root ignores directory permissions")
 		}

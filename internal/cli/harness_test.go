@@ -31,8 +31,10 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("HOME", home)
+	os.Setenv("USERPROFILE", home) // Windows reads the home directory from here
 	os.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	os.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	setGitIdentity()
 	os.Unsetenv("GITHUB_TOKEN")
 
 	code := m.Run()
@@ -40,11 +42,22 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// setGitIdentity lets test commits work on machines with no git user set up.
+func setGitIdentity() {
+	for _, k := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+		os.Setenv(k, "Test")
+	}
+	for _, k := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+		os.Setenv(k, "test@example.com")
+	}
+}
+
 // testEnv gives one test its own HOME, an empty keychain and no GITHUB_TOKEN.
 func testEnv(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig"))
 	t.Setenv("GITHUB_TOKEN", "")
 	// The config loader reads env vars by flag name, so $USER would fill the --user flag.
