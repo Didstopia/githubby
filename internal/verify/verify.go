@@ -52,13 +52,13 @@ type Report struct {
 	// Items names every repo, wiki and gist looked at, so a repo can be found here before deleting it
 	Items []string `json:"items"`
 
-	Missing  []string `json:"missing"`
-	Corrupt  []string `json:"corrupt"`
-	Stale    []string `json:"stale"`
-	LFS      []string `json:"lfs"`
+	Missing []string `json:"missing"`
+	Corrupt []string `json:"corrupt"`
+	Stale   []string `json:"stale"`
+	LFS     []string `json:"lfs"`
 	// Submodules not checked out at the recorded commit, or failing git fsck
 	Submodules []string `json:"submodules"`
-	Metadata []string `json:"metadata"`
+	Metadata   []string `json:"metadata"`
 	// Errors are checks that could not run; each one fails the backup
 	Errors []string `json:"errors"`
 }

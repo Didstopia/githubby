@@ -22,11 +22,11 @@ type State struct {
 type SyncProfile struct {
 	ID             string    `yaml:"id"`
 	Name           string    `yaml:"name"`
-	Type           string    `yaml:"type"`    // "user" or "org"
-	Source         string    `yaml:"source"`  // username or org name
+	Type           string    `yaml:"type"`   // "user" or "org"
+	Source         string    `yaml:"source"` // username or org name
 	TargetDir      string    `yaml:"target_dir"`
 	IncludePrivate bool      `yaml:"include_private"`
-	SyncAllRepos   bool      `yaml:"sync_all_repos,omitempty"`  // true = fetch all from API, false = use SelectedRepos
+	SyncAllRepos   bool      `yaml:"sync_all_repos,omitempty"` // true = fetch all from API, false = use SelectedRepos
 	SelectedRepos  []string  `yaml:"selected_repos,omitempty"` // specific repos (only used when SyncAllRepos is false)
 	IncludeFilter  []string  `yaml:"include_filter,omitempty"` // glob patterns
 	ExcludeFilter  []string  `yaml:"exclude_filter,omitempty"` // glob patterns

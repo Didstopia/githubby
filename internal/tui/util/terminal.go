@@ -31,7 +31,7 @@ func IsInteractive() bool {
 		"BUILDKITE",
 		"DRONE",
 		"TEAMCITY_VERSION",
-		"TF_BUILD",          // Azure Pipelines
+		"TF_BUILD",           // Azure Pipelines
 		"CODEBUILD_BUILD_ID", // AWS CodeBuild
 	}
 

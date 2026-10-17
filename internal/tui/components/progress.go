@@ -12,13 +12,13 @@ import (
 
 // ProgressBar represents a progress bar component
 type ProgressBar struct {
-	Label    string
-	Current  int
-	Total    int
-	Width    int
-	ShowPct  bool
-	bar      progress.Model
-	styles   *tui.Styles
+	Label   string
+	Current int
+	Total   int
+	Width   int
+	ShowPct bool
+	bar     progress.Model
+	styles  *tui.Styles
 }
 
 // NewProgressBar creates a new progress bar

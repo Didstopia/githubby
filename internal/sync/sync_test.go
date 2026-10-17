@@ -433,7 +433,7 @@ func TestSyncRepos_Filtered(t *testing.T) {
 	result, err := syncer.SyncUserRepos(context.Background(), "owner")
 
 	require.NoError(t, err)
-	assert.Len(t, result.Cloned, 1) // Only include-this
+	assert.Len(t, result.Cloned, 1)  // Only include-this
 	assert.Len(t, result.Skipped, 2) // exclude-this and other-repo
 }
 
@@ -531,8 +531,8 @@ func TestPullRepo_FastSync(t *testing.T) {
 
 	tests := []struct {
 		name           string
-		pushedAt       *time.Time              // nil means PushedAt not set
-		fetchHeadTime  *time.Time              // nil means no FETCH_HEAD file
+		pushedAt       *time.Time // nil means PushedAt not set
+		fetchHeadTime  *time.Time // nil means no FETCH_HEAD file
 		expectedStatus ProgressStatus
 		description    string
 	}{

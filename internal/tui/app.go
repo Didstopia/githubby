@@ -84,8 +84,8 @@ type App struct {
 	token           string
 
 	// Selected profile(s) for sync
-	selectedProfile  *state.SyncProfile
-	profilesToSync   []*state.SyncProfile
+	selectedProfile *state.SyncProfile
+	profilesToSync  []*state.SyncProfile
 
 	// Profile deletion state
 	deleteProfileID   string
@@ -969,39 +969,6 @@ func joinWithSeparator(items []string, sep string) string {
 }
 
 // Message types and command helpers are defined in messages.go
-
-// RunApp starts the unified TUI application (creates new App instance)
-func RunApp(ctx context.Context, opts ...AppOption) error {
-	app := NewApp(opts...)
-
-	// Determine initial screen based on auth state AND config completeness
-	// Config is "complete" if at least one profile exists
-	startScreen := ScreenOnboarding
-	if app.isAuthenticated {
-		hasProfiles := false
-		if app.storage != nil {
-			hasProfiles = len(app.storage.GetProfiles()) > 0
-		}
-		if hasProfiles {
-			startScreen = ScreenDashboard
-		}
-		// If authenticated but no profiles, stay on onboarding
-	}
-	app.currentScreen = startScreen
-
-	// Run the program
-	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithContext(ctx))
-	_, err := p.Run()
-
-	// Check if we need to restart after the TUI has cleanly exited
-	if app.restartAfterQuit {
-		if restartErr := update.Restart(); restartErr != nil {
-			return fmt.Errorf("update installed but restart failed: %w (please restart manually)", restartErr)
-		}
-	}
-
-	return err
-}
 
 // RunAppInstance runs an existing App instance
 func RunAppInstance(ctx context.Context, app *App) error {

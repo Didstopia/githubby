@@ -7,20 +7,20 @@ import (
 // KeyMap defines the key bindings for the TUI
 type KeyMap struct {
 	// Navigation
-	Up     key.Binding
-	Down   key.Binding
-	Left   key.Binding
-	Right  key.Binding
-	Home   key.Binding
-	End    key.Binding
-	PageUp key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
+	Home     key.Binding
+	End      key.Binding
+	PageUp   key.Binding
 	PageDown key.Binding
 
 	// Selection
-	Select    key.Binding
-	SelectAll key.Binding
+	Select     key.Binding
+	SelectAll  key.Binding
 	SelectNone key.Binding
-	Toggle    key.Binding
+	Toggle     key.Binding
 
 	// Actions
 	Confirm key.Binding
