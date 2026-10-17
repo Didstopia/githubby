@@ -82,7 +82,8 @@ func TestSync_MissingWikiPrintsNothingInCLIMode(t *testing.T) {
 	require.NoError(t, err)
 	orig := os.Stderr
 	os.Stderr = stderr
-	t.Cleanup(func() { os.Stderr = orig })
+	// Close before TempDir cleanup; Windows can't delete an open file
+	t.Cleanup(func() { os.Stderr = orig; stderr.Close() })
 
 	syncer := New(github.NewMockClient(), g, &Options{Target: t.TempDir(), Wikis: true})
 	result, err := syncer.SyncRepoWithData(context.Background(), repo)
