@@ -38,6 +38,8 @@ That's it! The interactive setup wizard will guide you through:
 - **Parallel Processing** - 4 concurrent workers for faster synchronization
 - **Full Branch Backup** - Fetches all branches, not just the default
 - **Git LFS Support** - Automatic detection and configuration
+- **Full Backup** - Submodules, wikis, gists, and issues, pull requests, releases, settings and projects as JSON
+- **Backup Check** - `githubby verify` compares a backup against GitHub before you delete anything
 - **Secure Auth** - OAuth device flow with system keychain storage
 - **Release Cleanup** - Filter and remove old GitHub releases
 - **Auto-Update** - Automatic updates on launch with seamless restart
@@ -122,8 +124,9 @@ CLI, scheduled, and Docker workflows cannot use the interactive OAuth browser fl
 
 1. Go to **[github.com/settings/tokens](https://github.com/settings/tokens)**
 2. Click **Generate new token (classic)** (or use a fine-grained token)
-3. Select the **`repo`** scope (required for private repositories; public repos work without scopes)
-4. Copy the token and export it:
+3. Select the **`repo`** scope (required for private repositories; public repos work without scopes).
+   For a full backup also select `read:org`, `gist`, `read:project` and `admin:org` (see [Full Backup](#full-backup))
+4. Copy the token and export it (`GITHUBBY_TOKEN` also works and wins over `GITHUB_TOKEN`):
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -168,6 +171,73 @@ githubby sync --user <username> --target ~/repos --dry-run
 # Verbose output (shows fast-sync decisions)
 githubby sync --user <username> --target ~/repos --verbose
 ```
+
+CLI sync also checks out submodules, clones each repo's wiki next to it (`<repo>.wiki`), and
+fetches the Git LFS objects of every branch. It exits with a non-zero code if anything failed.
+
+### Full Backup
+
+Back up your own repositories and every organization you belong to, in one run:
+
+```bash
+githubby sync --all-orgs --include-private --gists --metadata --target ~/backup
+```
+
+| Flag | What it adds |
+|------|--------------|
+| `--all-orgs` | Your own repositories plus those of every organization you are a member of |
+| `--gists` | Your gists, secret ones too, in `<you>/gists/<id>` with the gist details in `<id>.json` |
+| `--metadata` | Issues, pull requests, releases and settings as JSON, see below |
+
+Layout of the target directory:
+
+```
+backup/
+├── <owner>/<repo>/              # git clone, all branches, submodules, LFS objects
+├── <owner>/<repo>.wiki/         # the wiki, if the repo has one
+├── <owner>/<repo>.meta/         # --metadata
+│   ├── issues.json              # all issues with comments
+│   ├── pulls.json               # all pull requests with comments, review comments and reviews
+│   ├── releases.json            # plus releases/<tag>/<asset> files
+│   ├── discussions.json         # with comments and replies, if discussions are on
+│   ├── repo.json, labels.json, milestones.json, topics.json, branch-protection.json,
+│   ├── hooks.json, collaborators.json, deploy-keys.json, environments.json,
+│   └── actions-variables.json, actions-secrets.json (names only, GitHub never returns values)
+├── <org>.meta/                  # org.json, members, teams, Actions variables, secret names, projects
+├── <you>.meta/projects-v2.json  # your own projects
+├── <you>/gists/<id>/            # --gists
+└── verify-report.json           # written by githubby verify
+```
+
+Metadata is exported in full on every run. Files are written to a temp file first and then renamed,
+so a crash never leaves half a file. Release assets are only downloaded again when the size changed.
+When the token lacks a scope for one part (for example webhooks without admin access), that part is
+skipped with a warning naming the missing scope; it does not fail the run. Git sync and metadata
+export run independently: a failure in one does not stop the other, both show up in the summary and
+in the exit code.
+
+Token scopes for a full backup: `repo`, `read:org`, `gist`, `read:project`, `admin:org`.
+`githubby login` asks for all of these. `admin:org` is only needed for org secrets, variables and
+webhooks; it is read here, never written.
+
+#### Checking a Backup
+
+```bash
+githubby verify --all-orgs --gists --metadata --target ~/backup
+```
+
+`verify` takes the same `--all-orgs`, `--user`, `--org`, `--gists` and `--metadata` flags as `sync` and checks:
+
+- every repository (private ones always included), wiki and gist on GitHub exists locally
+- `git fsck` passes for each of them
+- every branch on GitHub exists locally at the same commit
+- every Git LFS object in the history is present locally with the right content (needs `git-lfs`)
+- with `--metadata`: the metadata directory exists and the issue and pull request counts match GitHub
+
+A check that can't run (network error, missing `git-lfs`, a scope the token lacks) is a failure,
+never a skip. The exit code is 0 only when everything is clean. The report, with a timestamp and the
+list of every item checked, is written to `<target>/verify-report.json`. Check that a repository is
+listed in `items` there before you delete it from GitHub.
 
 ### Profile-Based Sync
 
@@ -226,6 +296,17 @@ docker run -d --restart unless-stopped \
   -v ~/repos:/repos \
   ghcr.io/didstopia/githubby:latest \
   sync --user <username> --target /repos --schedule "0 */6 * * *"
+
+# Nightly full backup at 03:00, plus a check on demand
+docker run -d --restart unless-stopped \
+  -e GITHUBBY_TOKEN=ghp_... \
+  -v /mnt/user/Backups/github:/backup \
+  ghcr.io/didstopia/githubby:latest \
+  sync --all-orgs --include-private --gists --metadata --target /backup --schedule "0 3 * * *"
+
+docker run --rm -e GITHUBBY_TOKEN=ghp_... -v /mnt/user/Backups/github:/backup \
+  ghcr.io/didstopia/githubby:latest \
+  verify --all-orgs --gists --metadata --target /backup
 ```
 
 Or use `docker-compose.yaml` for persistent setups:
@@ -304,6 +385,9 @@ githubby update --check   # Check only, don't install
 
 **Note**: Dev builds and the `update`, `version`, and `help` commands skip auto-update to prevent loops.
 
+**Turning updates off**: pass `--no-update` or set `GITHUBBY_NO_UPDATE=1` (CLI and TUI). Inside Docker
+updates are always off.
+
 ---
 
 ## How Fast Sync Works
@@ -348,7 +432,7 @@ filter-count: -1
 
 **Token resolution priority:**
 1. `--token` flag
-2. `GITHUB_TOKEN` environment variable
+2. `GITHUBBY_TOKEN`, then `GITHUB_TOKEN` environment variable
 3. System keychain (OAuth tokens)
 4. Config file
 
@@ -390,13 +474,16 @@ githubby/
 │   ├── cli/                  # Cobra commands
 │   ├── config/               # Configuration management
 │   ├── git/                  # Git and LFS operations
-│   ├── github/               # GitHub API client
+│   ├── fileutil/             # Atomic file writes
+│   ├── github/               # GitHub API client (REST and GraphQL)
+│   ├── metadata/             # Metadata export (issues, pulls, releases, settings, projects)
 │   ├── schedule/             # Cron-based sync scheduling
 │   ├── sync/                 # Repository sync logic
 │   ├── state/                # TUI state management
 │   ├── tui/                  # Terminal UI (Bubble Tea)
 │   │   └── screens/          # TUI screens (onboarding, dashboard, etc.)
-│   └── update/               # Auto-update functionality
+│   ├── update/               # Auto-update functionality
+│   └── verify/               # Backup check
 └── .github/workflows/        # CI/CD
 ```
 
