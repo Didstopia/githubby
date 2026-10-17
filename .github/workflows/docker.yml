@@ -82,7 +82,7 @@ jobs:
             type=semver,pattern={{version}},value=${{ steps.get_tag.outputs.tag }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.get_tag.outputs.tag }}
             type=semver,pattern={{major}},value=${{ steps.get_tag.outputs.tag }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(steps.get_tag.outputs.tag, '-') }}
 
       - name: Build and push
         uses: docker/build-push-action@v7
