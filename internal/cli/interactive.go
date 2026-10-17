@@ -37,6 +37,12 @@ func init() {
 	rootCmd.AddCommand(interactiveCmd)
 }
 
+// Terminal checks and the program runner; tests replace them so no real terminal is needed.
+var (
+	isInteractive  = tuiutil.IsInteractive
+	runAppInstance = tui.RunAppInstance
+)
+
 // RunTUI launches the unified TUI application
 func RunTUI() error {
 	ctx := rootCmd.Context()
@@ -45,7 +51,7 @@ func RunTUI() error {
 	}
 
 	// Check if terminal is interactive
-	if !tuiutil.IsInteractive() {
+	if !isInteractive() {
 		tui.PrintNonInteractiveHelp()
 		return nil
 	}
@@ -121,8 +127,8 @@ func RunTUI() error {
 		app.RegisterScreen(tui.ScreenOnboarding, screens.NewOnboarding(ctx, screens.WithEmbeddedMode(), screens.WithStorage(storage)))
 	}
 
-	// Run the app directly (not RunApp which creates a new instance)
-	return tui.RunAppInstance(ctx, app)
+	// Run the app we just built
+	return runAppInstance(ctx, app)
 }
 
 // registerScreenFactories registers factory functions for lazy screen creation

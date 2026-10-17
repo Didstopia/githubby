@@ -575,14 +575,16 @@ func (c *CleanScreen) applyFilters() {
 
 // loadReleases loads releases from GitHub asynchronously
 func (c *CleanScreen) loadReleases() tea.Cmd {
-	c.releasesChan = make(chan releasesLoadResult, 1)
+	ch := make(chan releasesLoadResult, 1)
+	c.releasesChan = ch
 
-	// Start fetch in background goroutine
+	// Start fetch in background goroutine (uses the local channel so a later
+	// reload can replace c.releasesChan without racing with this goroutine)
 	go func() {
-		defer close(c.releasesChan)
+		defer close(ch)
 
 		releases, err := c.client.GetReleases(c.ctx, c.owner, c.repo)
-		c.releasesChan <- releasesLoadResult{releases: releases, err: err}
+		ch <- releasesLoadResult{releases: releases, err: err}
 	}()
 
 	// Return batch with spinner tick to keep UI responsive
@@ -613,15 +615,17 @@ func (c *CleanScreen) deleteNext() tea.Cmd {
 	for _, release := range c.releases {
 		if c.selected[release.GetID()] {
 			if idx == c.deleteIdx {
-				c.deleteChan = make(chan deleteResult, 1)
+				ch := make(chan deleteResult, 1)
+				c.deleteChan = ch
 
-				// Start deletion in background goroutine
+				// Start deletion in background goroutine (local channel: the next
+				// deleteNext call replaces c.deleteChan while this one may still be closing)
 				releaseToDelete := release // capture for goroutine
 				go func() {
-					defer close(c.deleteChan)
+					defer close(ch)
 
 					err := c.client.RemoveRelease(c.ctx, c.owner, c.repo, releaseToDelete)
-					c.deleteChan <- deleteResult{err: err}
+					ch <- deleteResult{err: err}
 				}()
 
 				// Return batch with spinner tick to keep UI responsive

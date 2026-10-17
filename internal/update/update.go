@@ -34,6 +34,11 @@ const (
 	ExecutableName = "githubby"
 )
 
+// executablePath finds the binary to replace; tests point it at a temp file.
+var executablePath = defaultExecutablePath
+
+func defaultExecutablePath() (string, error) { return selfupdate.ExecutablePath() }
+
 // Result contains information about an available update
 type Result struct {
 	// CurrentVersion is the currently running version
@@ -184,7 +189,7 @@ func (u *Updater) Update(ctx context.Context) (*Result, error) {
 	}
 
 	// Get the current executable path (where we'll install the update)
-	exe, err := selfupdate.ExecutablePath()
+	exe, err := executablePath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executable path: %w", err)
 	}
