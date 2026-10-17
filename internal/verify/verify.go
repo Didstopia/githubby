@@ -127,6 +127,9 @@ func (v *Verifier) check(ctx context.Context, rep *Report) {
 	repos, owners, err := v.listRepos(ctx, rep)
 	if err != nil {
 		rep.errorf("listing repos: %v", err)
+	} else if len(repos) == 0 {
+		// Usually a token that can't see the account; an empty pass would be a false OK
+		rep.errorf("GitHub listed no repos for this account; check the token's access")
 	}
 	if v.opts.Metadata {
 		for _, o := range owners {

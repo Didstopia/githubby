@@ -8,7 +8,6 @@ import (
 
 	gh "github.com/google/go-github/v86/github"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	gitpkg "github.com/Didstopia/githubby/internal/git"
 	"github.com/Didstopia/githubby/internal/github"
@@ -42,8 +41,8 @@ func TestExecuteVerify(t *testing.T) {
 	m := github.NewMockClient()
 	verifyTarget, verifyOrg, verifyUser, verifyAllOrgs, verifyGists, verifyMetadata = t.TempDir(), "Didstopia", "", false, false, false
 
-	// GitHub lists nothing: clean
-	require.NoError(t, executeVerify(context.Background(), m, g))
+	// GitHub lists nothing: never a pass, but the report is still written
+	assert.ErrorContains(t, executeVerify(context.Background(), m, g), "backup check failed")
 	assert.FileExists(t, filepath.Join(verifyTarget, verify.ReportFile))
 
 	// A repo that was never backed up fails the run

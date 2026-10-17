@@ -320,9 +320,10 @@ func TestVerify_ListingAndTargetErrorsFail(t *testing.T) {
 	assert.False(t, rep.OK)
 	assert.Contains(t, strings.Join(rep.Errors, "\n"), "listing repos of Didstopia")
 
-	// User mode lists that user's repos
+	// User mode lists that user's repos; this user has none, which must not pass
 	rep = f.verify(Options{User: "Dids"})
-	assert.True(t, rep.OK)
+	assert.False(t, rep.OK)
+	assert.Contains(t, strings.Join(rep.Errors, "\n"), "GitHub listed no repos")
 	assert.Equal(t, 2, f.api.CallCount("ListUserRepos"), "all-orgs and user mode each list the user's repos once")
 
 	rep, err := New(f.api, f.git, &Options{Target: filepath.Join(t.TempDir(), "missing"), Org: "x"}).Run(context.Background())
