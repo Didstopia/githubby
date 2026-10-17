@@ -146,7 +146,7 @@ func TestRunFlagSync_Gists(t *testing.T) {
 	assert.ErrorContains(t, err, "api down")
 	require.NotNil(t, result)
 	assert.Equal(t, []string{"gist g1"}, result.Gists)
-	assert.DirExists(t, filepath.Join(syncTarget, "Dids", "gists", "g1", ".git"))
+	assert.DirExists(t, filepath.Join(syncTarget, "Dids.gists", "g1", ".git"))
 
 	m.ListGistsFunc = func(ctx context.Context) ([]*gh.Gist, error) { return nil, errors.New("no gist scope") }
 	result, _, _ = runFlagSync(context.Background(), m, g, nil)

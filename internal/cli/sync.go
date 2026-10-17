@@ -85,7 +85,7 @@ func init() {
 	syncCmd.Flags().StringVarP(&syncUser, "user", "u", "", "GitHub username to sync repositories from")
 	syncCmd.Flags().StringVarP(&syncOrg, "org", "o", "", "GitHub organization to sync repositories from")
 	syncCmd.Flags().BoolVar(&syncAllOrgs, "all-orgs", false, "Sync your own repositories plus every organization you belong to")
-	syncCmd.Flags().BoolVar(&syncGists, "gists", false, "Also sync your gists (secret ones too) into <target>/<you>/gists")
+	syncCmd.Flags().BoolVar(&syncGists, "gists", false, "Also sync your gists (secret ones too) into <target>/<you>.gists")
 	syncCmd.Flags().BoolVar(&syncMetadata, "metadata", false, "Also export issues, pull requests, releases, settings and projects as JSON")
 
 	// Target directory

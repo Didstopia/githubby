@@ -11,13 +11,14 @@ import (
 	"github.com/Didstopia/githubby/internal/fileutil"
 )
 
-// GistsDir returns where a user's gists live under target
+// GistsDir returns where a user's gists live under target. It sits next to <login>/,
+// not in it, so a repo named "gists" can't clash with it.
 func GistsDir(target, login string) string {
-	return filepath.Join(target, login, "gists")
+	return filepath.Join(target, login+".gists")
 }
 
 // SyncGists clones or fetches every gist of the token's account (secret ones too)
-// into <target>/<login>/gists/<id>, with the gist's API data in <id>.json.
+// into <target>/<login>.gists/<id>, with the gist's API data in <id>.json.
 // Results go into result; the error is only for when the gists can't be listed.
 func (s *Syncer) SyncGists(ctx context.Context, result *Result) error {
 	user, err := s.ghClient.GetAuthenticatedUser(ctx)

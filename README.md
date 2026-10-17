@@ -187,7 +187,7 @@ githubby sync --all-orgs --include-private --gists --metadata --target ~/backup
 | Flag | What it adds |
 |------|--------------|
 | `--all-orgs` | Your own repositories plus those of every organization you are a member of |
-| `--gists` | Your gists, secret ones too, in `<you>/gists/<id>` with the gist details in `<id>.json` |
+| `--gists` | Your gists, secret ones too, in `<you>.gists/<id>` with the gist details in `<id>.json` |
 | `--metadata` | Issues, pull requests, releases and settings as JSON, see below |
 
 Layout of the target directory:
@@ -206,7 +206,7 @@ backup/
 │   └── actions-variables.json, actions-secrets.json (names only, GitHub never returns values)
 ├── <org>.meta/                  # org.json, members, teams, Actions variables, secret names, projects, rulesets
 ├── <you>.meta/projects-v2.json  # your own projects
-├── <you>/gists/<id>/            # --gists
+├── <you>.gists/<id>/            # --gists
 └── verify-report.json           # written by githubby verify
 ```
 

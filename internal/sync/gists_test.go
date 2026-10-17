@@ -43,12 +43,12 @@ func TestSyncGists(t *testing.T) {
 	assert.Equal(t, []string{"gist abc123"}, result.Gists)
 	assert.Contains(t, result.Failed, "gist broken")
 
-	body, err := os.ReadFile(filepath.Join(target, "Dids", "gists", "abc123", "note.md"))
+	body, err := os.ReadFile(filepath.Join(target, "Dids.gists", "abc123", "note.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "secret note", string(body))
 
 	var meta map[string]any
-	raw, err := os.ReadFile(filepath.Join(target, "Dids", "gists", "abc123.json"))
+	raw, err := os.ReadFile(filepath.Join(target, "Dids.gists", "abc123.json"))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(raw, &meta))
 	assert.Equal(t, "my secret", meta["description"])
@@ -98,7 +98,9 @@ func TestSyncGists_DryRunAndErrors(t *testing.T) {
 }
 
 func TestIsGistPath(t *testing.T) {
-	assert.True(t, isGistPath("Dids/gists/abc"))
-	assert.False(t, isGistPath("Dids/gists"))
+	assert.True(t, isGistPath("Dids.gists/abc"))
+	assert.False(t, isGistPath("Dids.gists"))
 	assert.False(t, isGistPath("Dids/repo"))
+	assert.False(t, isGistPath("Dids/gists"), "a repo named gists is a repo")
+	assert.False(t, isGistPath("Dids/gists/abc"))
 }

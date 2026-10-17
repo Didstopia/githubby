@@ -550,10 +550,11 @@ func (s *Syncer) detectArchived(remoteRepos []*gh.Repository) []string {
 	return archived
 }
 
-// isGistPath reports whether a slash path relative to target is <user>/gists/<id>
+// isGistPath reports whether a slash path relative to target is <user>.gists/<id>.
+// Logins can't hold a dot, so this never matches <owner>/<repo>.
 func isGistPath(rel string) bool {
 	parts := strings.Split(rel, "/")
-	return len(parts) == 3 && parts[1] == "gists"
+	return len(parts) == 2 && strings.HasSuffix(parts[0], ".gists")
 }
 
 // reportProgress calls the progress callback if set
