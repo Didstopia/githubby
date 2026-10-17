@@ -83,6 +83,11 @@ type Options struct {
 	// PullRefs fetches every pull request head into refs/pull/<n>/head after each sync,
 	// so commits of fork and deleted branches are kept too
 	PullRefs bool
+
+	// UpdateWorkTree fast-forwards the checked-out default branch to origin after each
+	// sync (switching to it when GitHub's default changed), so submodules and LFS files
+	// of the latest commit get checked out. Local changes are never touched.
+	UpdateWorkTree bool
 }
 
 // Result represents the result of a sync operation
@@ -470,6 +475,11 @@ func IsRepoNotFound(err error) bool {
 // changed is false when fast sync found nothing new. Failures here are warnings:
 // the repo itself is safe, and verify catches missing LFS objects.
 func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath string, changed bool, result *Result) {
+	// Runs even when fast sync skipped the fetch: an earlier run may have fetched without moving the checkout
+	if s.opts.UpdateWorkTree {
+		s.updateWorkTree(ctx, repo, localPath, result)
+	}
+
 	if s.opts.Submodules {
 		if err := s.git.SubmoduleUpdate(ctx, localPath); err != nil {
 			result.warn(repo.GetFullName(), "submodules: %v", err)
@@ -495,6 +505,29 @@ func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath s
 			}
 		case s.lfs.RepoUsesLFS(localPath):
 			result.warn(repo.GetFullName(), "LFS: %v", git.ErrLFSNotInstalled)
+		}
+	}
+}
+
+// updateWorkTree moves the checkout to the latest commit of the default branch,
+// then pulls the LFS files of that commit. Anything in the way is a warning.
+func (s *Syncer) updateWorkTree(ctx context.Context, repo *gh.Repository, localPath string, result *Result) {
+	branch := repo.GetDefaultBranch()
+	if branch == "" {
+		var err error
+		if branch, err = s.git.GetDefaultBranch(ctx, localPath); err != nil {
+			result.warn(repo.GetFullName(), "working tree: %v", err)
+			return
+		}
+	}
+
+	moved, err := s.git.UpdateWorkTree(ctx, localPath, branch)
+	if err != nil {
+		result.warn(repo.GetFullName(), "working tree: %v", err)
+	}
+	if moved && s.lfs.IsInstalled() && s.lfs.RepoUsesLFS(localPath) {
+		if err := s.lfs.Pull(ctx, localPath); err != nil {
+			result.warn(repo.GetFullName(), "LFS: %v", err)
 		}
 	}
 }

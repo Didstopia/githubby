@@ -207,8 +207,9 @@ func (v *Verifier) checkRepo(ctx context.Context, repo *gh.Repository, rep *Repo
 	owner, name, full := repo.GetOwner().GetLogin(), repo.GetName(), repo.GetFullName()
 	local := filepath.Join(v.opts.Target, owner, name)
 
-	if v.checkGitCopy(ctx, full, local, repo.GetCloneURL(), true, rep) {
+	if heads := v.checkGitCopy(ctx, full, local, repo.GetCloneURL(), true, rep); heads != nil {
 		v.checkPullRefs(ctx, full, local, repo.GetCloneURL(), rep)
+		v.checkCheckout(ctx, repo, local, heads, rep)
 	}
 	if v.git.IsGitRepo(local) {
 		v.checkSubmodules(ctx, full, local, rep)
@@ -225,14 +226,15 @@ func (v *Verifier) checkRepo(ctx context.Context, repo *gh.Repository, rep *Repo
 
 // checkGitCopy checks that a local clone exists, is not corrupt, has every remote
 // branch at the same head, and (withLFS) has all its LFS objects. It returns true when
-// the local copy exists and GitHub could be reached, so further checks make sense.
-func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, withLFS bool, rep *Report) bool {
+// the branch heads GitHub has when the local copy exists and GitHub could be reached,
+// so further checks make sense, and nil otherwise.
+func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, withLFS bool, rep *Report) map[string]string {
 	rep.Checked++
 	rep.Items = append(rep.Items, name)
 
 	if !v.git.IsGitRepo(local) {
 		rep.Missing = append(rep.Missing, name)
-		return false
+		return nil
 	}
 
 	if err := v.git.Fsck(ctx, local); err != nil {
@@ -240,7 +242,6 @@ func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, wi
 	}
 
 	remote, err := v.git.LsRemoteHeads(ctx, url)
-	reachable := err == nil
 	if err != nil {
 		rep.errorf("%s: can't list branches on GitHub: %v", name, err)
 	} else if localHeads, err := v.git.RemoteBranches(ctx, local); err != nil {
@@ -250,17 +251,49 @@ func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, wi
 	}
 
 	if !withLFS {
-		return reachable
+		return remote
 	}
 	missing, err := v.lfs.MissingLFSObjects(ctx, local)
 	if err != nil {
 		rep.errorf("%s: can't check LFS objects: %v", name, err)
-		return reachable
+		return remote
 	}
 	for _, m := range missing {
 		rep.LFS = append(rep.LFS, name+": "+m)
 	}
-	return reachable
+	return remote
+}
+
+// checkCheckout checks that the checked-out commit is the head of GitHub's default
+// branch. The submodule check reads the checked-out commit, so this is what makes it
+// prove the submodules of the latest commit.
+func (v *Verifier) checkCheckout(ctx context.Context, repo *gh.Repository, local string, heads map[string]string, rep *Report) {
+	name := repo.GetFullName()
+	if len(heads) == 0 {
+		return // empty repo, nothing to check out
+	}
+	branch := repo.GetDefaultBranch()
+	if branch == "" {
+		var err error
+		if branch, err = v.git.LsRemoteDefaultBranch(ctx, repo.GetCloneURL()); err != nil {
+			rep.errorf("%s: can't read the default branch on GitHub: %v", name, err)
+			return
+		}
+	}
+	want, ok := heads[branch]
+	if !ok {
+		rep.errorf("%s: default branch %q not found on GitHub", name, branch)
+		return
+	}
+	got, err := v.git.GetHEAD(ctx, local)
+	if err != nil {
+		got = "nothing"
+	}
+	if got != want {
+		rep.Stale = append(rep.Stale, fmt.Sprintf(
+			"%s: checked out %s, but %s on GitHub is at %s: working tree behind, submodules for the latest commit may be missing",
+			name, short(got), branch, short(want)))
+	}
 }
 
 // checkPullRefs checks that every pull request head on GitHub is kept locally at the same commit

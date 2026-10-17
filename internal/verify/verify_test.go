@@ -189,11 +189,31 @@ func TestVerify_FindsProblems(t *testing.T) {
 	assert.Equal(t, []string{"Didstopia/new", "Didstopia/wiki.wiki"}, rep.Missing)
 	require.Len(t, rep.Corrupt, 1)
 	assert.Contains(t, rep.Corrupt[0], "Didstopia/corrupt")
-	assert.Len(t, rep.Stale, 2)
+	assert.Len(t, rep.Stale, 3)
+	assert.Contains(t, strings.Join(rep.Stale, "\n"), "Didstopia/stale: checked out")
 	assert.Contains(t, strings.Join(rep.Stale, "\n"), "branch feature missing locally")
 	assert.Contains(t, strings.Join(rep.Stale, "\n"), "branch main is at")
 	require.Len(t, rep.Errors, 1)
 	assert.Contains(t, rep.Errors[0], "Didstopia/gone: can't list branches on GitHub")
+}
+
+func TestVerify_CheckoutBehindDefaultBranch(t *testing.T) {
+	needLFS(t)
+	f := newFixture(t)
+	dir := f.addRepo("tool", false)
+	commit(t, dir, "two.txt", "two")
+	f.repos[0].DefaultBranch = gh.Ptr("main")
+	f.backup()
+	require.True(t, f.verify(Options{}).OK)
+
+	// All branches are fetched, but the checkout is an older commit
+	runGit(t, "-C", filepath.Join(f.target, "Didstopia", "tool"), "reset", "-q", "--hard", "HEAD~1")
+
+	rep := f.verify(Options{})
+	assert.False(t, rep.OK)
+	require.Len(t, rep.Stale, 1)
+	assert.Contains(t, rep.Stale[0], "Didstopia/tool: checked out")
+	assert.Contains(t, rep.Stale[0], "working tree behind, submodules for the latest commit may be missing")
 }
 
 func TestVerify_LFS(t *testing.T) {

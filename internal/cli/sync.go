@@ -258,6 +258,7 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 		Wikis:          true,
 		LFSAll:         true,
 		PullRefs:       true,
+		UpdateWorkTree: true,
 	}
 
 	// Profiles that picked specific repos sync only those
@@ -353,6 +354,7 @@ func runFlagSync(ctx context.Context, ghClient github.Client, git *gitpkg.Git, e
 		Wikis:          true,
 		LFSAll:         true,
 		PullRefs:       true,
+		UpdateWorkTree: true,
 	}
 	syncer := sync.New(ghClient, git, opts)
 
