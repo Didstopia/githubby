@@ -4,6 +4,7 @@ package errors
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Common errors
@@ -130,6 +131,15 @@ To fix this:
 
 // NewExpiredTokenError creates an auth error that identifies which token source failed
 func NewExpiredTokenError(source string) *AuthError {
+	if strings.HasPrefix(source, "environment variable") {
+		return &AuthError{
+			Message: fmt.Sprintf(`token from %s is invalid or expired
+
+To fix this:
+  1. Check the variable holds the whole token (classic tokens start with ghp_)
+  2. Check the token is not expired or revoked at https://github.com/settings/tokens`, source),
+		}
+	}
 	return &AuthError{
 		Message: fmt.Sprintf(`token from %s is invalid or expired
 

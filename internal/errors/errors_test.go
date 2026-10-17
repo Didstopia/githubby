@@ -283,3 +283,13 @@ func TestNewExpiredTokenError(t *testing.T) {
 		t.Error("expected error to contain logout instruction")
 	}
 }
+
+func TestNewExpiredTokenError_EnvSourceGivesContainerHint(t *testing.T) {
+	err := NewExpiredTokenError("environment variable (GITHUBBY_TOKEN or GITHUB_TOKEN)")
+	if strings.Contains(err.Error(), "githubby login") {
+		t.Error("a token from the environment can't be fixed with githubby login")
+	}
+	if !strings.Contains(err.Error(), "ghp_") || !strings.Contains(err.Error(), "settings/tokens") {
+		t.Errorf("expected a hint about the token value, got %q", err.Error())
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	gh "github.com/google/go-github/v86/github"
 	"golang.org/x/oauth2"
@@ -67,7 +68,8 @@ func GetToken(ctx context.Context, explicitToken string, hostname string) (*Toke
 
 	// 2. Check environment variables
 	for _, name := range []string{EnvGitHubbyToken, EnvGitHubToken} {
-		if envToken := os.Getenv(name); envToken != "" {
+		// Pasted tokens often carry a newline, spaces or quotes from a container UI
+		if envToken := strings.Trim(strings.TrimSpace(os.Getenv(name)), `"'`); envToken != "" {
 			return &TokenResult{
 				Token:    envToken,
 				Source:   TokenSourceEnv,

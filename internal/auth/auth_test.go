@@ -29,6 +29,15 @@ func TestGetToken_FromEnvVar(t *testing.T) {
 	assert.Equal(t, DefaultHostname, result.Hostname)
 }
 
+func TestGetToken_EnvTokenIsTrimmed(t *testing.T) {
+	for _, raw := range []string{"ghp_abc\n", "  ghp_abc  ", `"ghp_abc"`, " 'ghp_abc'\r\n"} {
+		t.Setenv(EnvGitHubbyToken, raw)
+		result, err := GetToken(context.Background(), "", "")
+		require.NoError(t, err)
+		assert.Equal(t, "ghp_abc", result.Token, "raw %q", raw)
+	}
+}
+
 func TestGetToken_ExplicitTokenTakesPrecedence(t *testing.T) {
 	// Save and restore original env var
 	original := os.Getenv(EnvGitHubToken)
