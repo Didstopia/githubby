@@ -169,6 +169,34 @@ func (s *Syncer) SyncRepoWithData(ctx context.Context, repo *gh.Repository) (*Re
 	return s.syncRepos(ctx, []*gh.Repository{repo})
 }
 
+// SyncSelectedRepos syncs only the given "owner/repo" names
+func (s *Syncer) SyncSelectedRepos(ctx context.Context, fullNames []string) (*Result, error) {
+	failed := make(map[string]error)
+	var repos []*gh.Repository
+
+	for _, fullName := range fullNames {
+		owner, name, ok := strings.Cut(fullName, "/")
+		if !ok {
+			failed[fullName] = fmt.Errorf("invalid repository name %q, want owner/repo", fullName)
+			continue
+		}
+		repo, err := s.ghClient.GetRepository(ctx, owner, name)
+		if err != nil {
+			failed[fullName] = err
+			continue
+		}
+		repos = append(repos, repo)
+	}
+
+	result, err := s.syncRepos(ctx, repos)
+	if result != nil {
+		for name, ferr := range failed {
+			result.Failed[name] = ferr
+		}
+	}
+	return result, err
+}
+
 // syncResult holds the result of syncing a single repo
 type syncResult struct {
 	repoName string

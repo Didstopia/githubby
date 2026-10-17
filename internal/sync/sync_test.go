@@ -331,6 +331,36 @@ func TestSyncRepo(t *testing.T) {
 	})
 }
 
+func TestSyncSelectedRepos(t *testing.T) {
+	gitInstance, err := git.New()
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+
+	mockClient := github.NewMockClient()
+	mockClient.GetRepositoryFunc = func(ctx context.Context, o, r string) (*gh.Repository, error) {
+		fullName := o + "/" + r
+		return &gh.Repository{
+			Name:     strPtr(r),
+			FullName: &fullName,
+			Owner:    &gh.User{Login: strPtr(o)},
+			Private:  boolPtr(false),
+			CloneURL: strPtr("https://github.com/" + fullName + ".git"),
+		}, nil
+	}
+
+	opts := &Options{Target: t.TempDir(), DryRun: true}
+	syncer := New(mockClient, gitInstance, opts)
+
+	result, err := syncer.SyncSelectedRepos(context.Background(), []string{"owner/a", "owner/b", "bad"})
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 2, mockClient.CallCount("GetRepository"))
+	assert.Equal(t, 0, mockClient.CallCount("ListUserRepos"))
+	assert.Contains(t, result.Failed, "bad")
+}
+
 func TestSyncRepos_DryRun(t *testing.T) {
 	gitInstance, err := git.New()
 	if err != nil {

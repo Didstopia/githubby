@@ -232,16 +232,26 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 		Verbose:        verbose,
 	}
 
+	// Profiles that picked specific repos sync only those
+	useSelected := !profile.SyncAllRepos && len(profile.SelectedRepos) > 0
+	if useSelected {
+		// Other local repos aren't "archived", just not selected
+		opts.SkipArchiveDetection = true
+	}
+
 	syncer := sync.New(ghClient, git, opts)
 
 	var result *sync.Result
 	var syncErr error
 
-	switch profile.Type {
-	case "user":
+	switch {
+	case useSelected:
+		fmt.Printf("Syncing %d selected repositories\n", len(profile.SelectedRepos))
+		result, syncErr = syncer.SyncSelectedRepos(ctx, profile.SelectedRepos)
+	case profile.Type == "user":
 		fmt.Printf("Syncing repositories for user: %s\n", profile.Source)
 		result, syncErr = syncer.SyncUserRepos(ctx, profile.Source)
-	case "org":
+	case profile.Type == "org":
 		fmt.Printf("Syncing repositories for organization: %s\n", profile.Source)
 		result, syncErr = syncer.SyncOrgRepos(ctx, profile.Source)
 	default:
