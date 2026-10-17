@@ -4,7 +4,7 @@ package github
 import (
 	"context"
 
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 )
 
 // Client defines the interface for GitHub API operations

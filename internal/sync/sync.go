@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 
 	"github.com/Didstopia/githubby/internal/git"
 	"github.com/Didstopia/githubby/internal/github"

@@ -4,7 +4,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 
 	"github.com/Didstopia/githubby/internal/state"
 	"github.com/Didstopia/githubby/internal/sync"

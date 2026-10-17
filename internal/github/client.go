@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 	"golang.org/x/oauth2"
 
 	gherrors "github.com/Didstopia/githubby/internal/errors"

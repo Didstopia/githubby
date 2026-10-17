@@ -19,7 +19,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 
 	"github.com/Didstopia/githubby/internal/git"
 	"github.com/Didstopia/githubby/internal/github"

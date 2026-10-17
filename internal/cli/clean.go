@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/cheggaaa/pb/v3"
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 	"github.com/spf13/cobra"
 
 	"github.com/Didstopia/githubby/internal/auth"

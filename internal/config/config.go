@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/mitchellh/go-homedir"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 const (

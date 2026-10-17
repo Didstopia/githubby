@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 
 	gherrors "github.com/Didstopia/githubby/internal/errors"
 	"github.com/Didstopia/githubby/internal/git"

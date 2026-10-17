@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 )
 
 func TestMockClient_GetReleases(t *testing.T) {
