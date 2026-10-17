@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/cli/oauth/device"
@@ -20,8 +21,16 @@ const (
 	// DefaultScopes are the OAuth scopes requested during authentication
 	// - repo: Full control of private repositories (needed for sync)
 	// - read:org: Read org membership (needed for org sync)
-	DefaultScopes = "repo read:org"
+	// - gist: Secret gists (needed for gist backup)
+	// - read:project: Projects (needed for metadata backup)
+	// - admin:org: Org secrets, variables and webhooks (read for metadata backup)
+	DefaultScopes = "repo read:org gist read:project admin:org"
 )
+
+// DefaultScopeList returns DefaultScopes as a list
+func DefaultScopeList() []string {
+	return strings.Fields(DefaultScopes)
+}
 
 // DeviceFlowOptions configures the device flow authentication
 type DeviceFlowOptions struct {
@@ -48,7 +57,7 @@ type DeviceFlowResult struct {
 func DefaultDeviceFlowOptions() *DeviceFlowOptions {
 	return &DeviceFlowOptions{
 		ClientID: GitHubOAuthClientID,
-		Scopes:   []string{"repo", "read:org"},
+		Scopes:   DefaultScopeList(),
 		Hostname: DefaultHostname,
 	}
 }
@@ -64,7 +73,7 @@ func RunDeviceFlow(ctx context.Context, opts *DeviceFlowOptions) (*DeviceFlowRes
 	}
 
 	if len(opts.Scopes) == 0 {
-		opts.Scopes = []string{"repo", "read:org"}
+		opts.Scopes = DefaultScopeList()
 	}
 
 	if opts.Hostname == "" {
@@ -157,7 +166,7 @@ func RequestDeviceCode(ctx context.Context) (*device.CodeResponse, error) {
 	}
 
 	codeURL := "https://github.com/login/device/code"
-	scopes := []string{"repo", "read:org"}
+	scopes := DefaultScopeList()
 
 	code, err := device.RequestCode(httpClient, codeURL, GitHubOAuthClientID, scopes)
 	if err != nil {

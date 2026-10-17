@@ -97,7 +97,7 @@ func TestFormatTokenSource(t *testing.T) {
 		expected string
 	}{
 		{TokenSourceFlag, "command line flag"},
-		{TokenSourceEnv, "environment variable (GITHUB_TOKEN)"},
+		{TokenSourceEnv, "environment variable (GITHUBBY_TOKEN or GITHUB_TOKEN)"},
 		{TokenSourceKeychain, "keychain"},
 		{TokenSourceConfig, "config file (~/.githubby.yaml)"},
 		{TokenSourceNone, "unknown"},

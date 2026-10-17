@@ -47,7 +47,7 @@ Examples:
 func init() {
 	loginCmd.Flags().BoolVar(&loginWithToken, "with-token", false, "Read token from stdin")
 	loginCmd.Flags().StringVar(&loginHostname, "hostname", auth.DefaultHostname, "GitHub hostname (for GitHub Enterprise)")
-	loginCmd.Flags().StringSliceVar(&loginScopes, "scopes", []string{"repo", "read:org"}, "OAuth scopes to request")
+	loginCmd.Flags().StringSliceVar(&loginScopes, "scopes", auth.DefaultScopeList(), "OAuth scopes to request")
 	loginCmd.Flags().BoolVar(&loginNoPrompt, "no-prompt", false, "Skip browser open prompt")
 
 	rootCmd.AddCommand(loginCmd)

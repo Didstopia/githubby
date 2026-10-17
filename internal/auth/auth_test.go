@@ -129,3 +129,30 @@ func TestGetTokenWithStoredToken(t *testing.T) {
 	assert.Equal(t, testToken, token)
 	assert.Equal(t, TokenSourceConfig, source)
 }
+
+func TestGetToken_GitHubbyTokenWins(t *testing.T) {
+	t.Setenv(EnvGitHubbyToken, "ghp_githubby")
+	t.Setenv(EnvGitHubToken, "ghp_github")
+
+	result, err := GetToken(context.Background(), "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "ghp_githubby", result.Token)
+	assert.Equal(t, TokenSourceEnv, result.Source)
+}
+
+func TestGetToken_GitHubbyTokenAlone(t *testing.T) {
+	t.Setenv(EnvGitHubbyToken, "ghp_githubby")
+	t.Setenv(EnvGitHubToken, "")
+
+	result, err := GetToken(context.Background(), "", "")
+	require.NoError(t, err)
+	assert.Equal(t, "ghp_githubby", result.Token)
+}
+
+func TestDefaultScopesCoverBackup(t *testing.T) {
+	scopes := DefaultScopeList()
+	for _, want := range []string{"repo", "read:org", "gist", "read:project", "admin:org"} {
+		assert.Contains(t, scopes, want)
+	}
+	assert.Equal(t, scopes, DefaultDeviceFlowOptions().Scopes)
+}

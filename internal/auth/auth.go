@@ -16,6 +16,9 @@ const (
 
 	// EnvGitHubToken is the environment variable for GitHub token
 	EnvGitHubToken = "GITHUB_TOKEN"
+
+	// EnvGitHubbyToken is checked before GITHUB_TOKEN, so a container can pass its own token
+	EnvGitHubbyToken = "GITHUBBY_TOKEN"
 )
 
 // TokenSource represents where the token was obtained from
@@ -46,7 +49,7 @@ type AuthenticatedUser struct {
 
 // GetToken resolves the GitHub token using the following priority:
 // 1. Explicit token (from --token flag)
-// 2. GITHUB_TOKEN environment variable
+// 2. GITHUBBY_TOKEN, then GITHUB_TOKEN environment variable
 // 3. Stored token (keychain or config file)
 func GetToken(ctx context.Context, explicitToken string, hostname string) (*TokenResult, error) {
 	if hostname == "" {
@@ -62,13 +65,15 @@ func GetToken(ctx context.Context, explicitToken string, hostname string) (*Toke
 		}, nil
 	}
 
-	// 2. Check environment variable
-	if envToken := os.Getenv(EnvGitHubToken); envToken != "" {
-		return &TokenResult{
-			Token:    envToken,
-			Source:   TokenSourceEnv,
-			Hostname: hostname,
-		}, nil
+	// 2. Check environment variables
+	for _, name := range []string{EnvGitHubbyToken, EnvGitHubToken} {
+		if envToken := os.Getenv(name); envToken != "" {
+			return &TokenResult{
+				Token:    envToken,
+				Source:   TokenSourceEnv,
+				Hostname: hostname,
+			}, nil
+		}
 	}
 
 	// 3. Check stored token (keychain first, then config file)
@@ -134,7 +139,7 @@ func FormatTokenSource(source TokenSource) string {
 	case TokenSourceFlag:
 		return "command line flag"
 	case TokenSourceEnv:
-		return "environment variable (GITHUB_TOKEN)"
+		return "environment variable (GITHUBBY_TOKEN or GITHUB_TOKEN)"
 	case TokenSourceKeychain:
 		return "keychain"
 	case TokenSourceConfig:
