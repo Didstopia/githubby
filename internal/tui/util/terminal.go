@@ -7,16 +7,21 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
+// isTerminal reports whether a file descriptor is a terminal; tests replace it
+var isTerminal = func(fd uintptr) bool {
+	return isatty.IsTerminal(fd) || isatty.IsCygwinTerminal(fd)
+}
+
 // IsInteractive returns true if the current terminal is interactive
 // (not a pipe, not in CI environment)
 func IsInteractive() bool {
 	// Check if stdin is a terminal
-	if !isatty.IsTerminal(os.Stdin.Fd()) && !isatty.IsCygwinTerminal(os.Stdin.Fd()) {
+	if !isTerminal(os.Stdin.Fd()) {
 		return false
 	}
 
 	// Check if stdout is a terminal
-	if !isatty.IsTerminal(os.Stdout.Fd()) && !isatty.IsCygwinTerminal(os.Stdout.Fd()) {
+	if !isTerminal(os.Stdout.Fd()) {
 		return false
 	}
 

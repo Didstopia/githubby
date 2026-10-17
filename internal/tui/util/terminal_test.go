@@ -46,3 +46,62 @@ func TestBell_WritesBEL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "\a", string(out))
 }
+
+func fakeTerminal(t *testing.T, stdin, stdout bool) {
+	t.Helper()
+	in, out := os.Stdin.Fd(), os.Stdout.Fd()
+	orig := isTerminal
+	isTerminal = func(fd uintptr) bool {
+		switch fd {
+		case in:
+			return stdin
+		case out:
+			return stdout
+		}
+		return false
+	}
+	t.Cleanup(func() { isTerminal = orig })
+}
+
+var ciVars = []string{
+	"CI", "GITHUB_ACTIONS", "GITLAB_CI", "TRAVIS", "CIRCLECI", "JENKINS_URL",
+	"BUILDKITE", "DRONE", "TEAMCITY_VERSION", "TF_BUILD", "CODEBUILD_BUILD_ID",
+}
+
+func clearCI(t *testing.T) {
+	t.Helper()
+	for _, v := range ciVars {
+		t.Setenv(v, "")
+	}
+}
+
+func TestIsInteractive_TerminalsAndNoCI(t *testing.T) {
+	clearCI(t)
+	fakeTerminal(t, true, true)
+	assert.True(t, IsInteractive())
+}
+
+func TestIsInteractive_FalseWhenStdoutIsNotATerminal(t *testing.T) {
+	clearCI(t)
+	fakeTerminal(t, true, false)
+	assert.False(t, IsInteractive())
+}
+
+func TestIsInteractive_FalseInEachCIEnvironment(t *testing.T) {
+	for _, v := range ciVars {
+		t.Run(v, func(t *testing.T) {
+			clearCI(t)
+			fakeTerminal(t, true, true)
+			t.Setenv(v, "1")
+			assert.False(t, IsInteractive())
+		})
+	}
+}
+
+func TestIsTerminal_FalseForPipe(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	defer r.Close()
+	defer w.Close()
+	assert.False(t, isTerminal(r.Fd()))
+}
