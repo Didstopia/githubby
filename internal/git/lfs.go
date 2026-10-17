@@ -158,6 +158,7 @@ func (l *LFS) Pull(ctx context.Context, repoDir string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, l.Git.GitPath, "-C", repoDir, "lfs", "pull")
+	cmd.Env = l.Git.authEnv()
 	if !l.Quiet {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -172,6 +173,7 @@ func (l *LFS) Fetch(ctx context.Context, repoDir string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, l.Git.GitPath, "-C", repoDir, "lfs", "fetch")
+	cmd.Env = l.Git.authEnv()
 	if !l.Quiet {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

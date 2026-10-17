@@ -212,11 +212,12 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 	}
 	authToken := resolvedToken.Token
 
-	// Initialize git
-	git, err := gitpkg.New()
+	// Initialize git with the token so private repos clone too
+	git, err := gitpkg.NewWithToken(authToken)
 	if err != nil {
 		return fmt.Errorf("git initialization failed: %w", err)
 	}
+	git.Host = resolvedToken.Hostname
 
 	// Create GitHub client
 	ghClient := github.NewClient(authToken)
@@ -265,11 +266,12 @@ func executeSyncWithFlags(ctx context.Context) error {
 	}
 	authToken := resolvedToken.Token
 
-	// Initialize git
-	git, err := gitpkg.New()
+	// Initialize git with the token so private repos clone too
+	git, err := gitpkg.NewWithToken(authToken)
 	if err != nil {
 		return fmt.Errorf("git initialization failed: %w", err)
 	}
+	git.Host = resolvedToken.Hostname
 
 	// Create GitHub client
 	ghClient := github.NewClient(authToken)

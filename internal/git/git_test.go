@@ -373,3 +373,40 @@ func TestMockCommander(t *testing.T) {
 		assert.Equal(t, 0, mock.CallCount("NonExistent"))
 	})
 }
+
+func TestAuthEnv(t *testing.T) {
+	t.Run("no token inherits env", func(t *testing.T) {
+		g := &Git{}
+		assert.Nil(t, g.authEnv())
+	})
+
+	t.Run("token is scoped to the host", func(t *testing.T) {
+		g := &Git{Token: "secret", Host: "ghe.example.com"}
+		env := g.authEnv()
+		assert.Contains(t, env, "GIT_CONFIG_KEY_0=http.https://ghe.example.com/.extraheader")
+		assert.Contains(t, env, "GIT_CONFIG_VALUE_0=Authorization: Basic eC1hY2Nlc3MtdG9rZW46c2VjcmV0")
+	})
+
+	t.Run("defaults to github.com", func(t *testing.T) {
+		g := &Git{Token: "secret"}
+		assert.Contains(t, g.authEnv(), "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader")
+	})
+}
+
+func TestScrubRemoteURL(t *testing.T) {
+	g, err := New()
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+
+	repo := t.TempDir()
+	require.NoError(t, exec.Command(g.GitPath, "init", repo).Run())
+	require.NoError(t, exec.Command(g.GitPath, "-C", repo, "remote", "add", "origin", "https://oauth2:old-token@github.com/owner/repo.git").Run())
+
+	require.NoError(t, g.scrubRemoteURL(ctx, repo))
+
+	url, err := g.GetRemoteURL(ctx, repo)
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/owner/repo.git", url)
+}

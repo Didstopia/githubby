@@ -3,8 +3,10 @@ package git
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +31,8 @@ type Git struct {
 	Quiet bool
 	// Token is the authentication token for HTTPS operations
 	Token string
+	// Host is the GitHub host the token is sent to (default github.com)
+	Host string
 }
 
 // New creates a new Git instance
@@ -69,10 +73,8 @@ func NewQuietWithToken(token string) (*Git, error) {
 
 // Clone clones a repository to the target directory
 func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
-	// If we have a token and it's an HTTPS URL, embed the token for authentication
-	cloneURL := g.authenticateURL(url)
-
-	cmd := exec.CommandContext(ctx, g.GitPath, "clone", cloneURL, targetDir)
+	cmd := exec.CommandContext(ctx, g.GitPath, "clone", url, targetDir)
+	cmd.Env = g.authEnv()
 	if !g.Quiet {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -94,19 +96,40 @@ func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
 	return nil
 }
 
-// authenticateURL adds authentication token to HTTPS URLs
-func (g *Git) authenticateURL(url string) string {
+// authEnv returns the environment for a git command, with the token passed as a
+// one-off auth header so it is never written to .git/config. Nil means inherit.
+func (g *Git) authEnv() []string {
 	if g.Token == "" {
-		return url
+		return nil
 	}
 
-	// Only modify HTTPS URLs
-	if strings.HasPrefix(url, "https://github.com/") {
-		// Transform https://github.com/owner/repo.git to https://oauth2:TOKEN@github.com/owner/repo.git
-		return strings.Replace(url, "https://github.com/", "https://oauth2:"+g.Token+"@github.com/", 1)
+	host := g.Host
+	if host == "" {
+		host = "github.com"
 	}
 
-	return url
+	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + g.Token))
+	return append(os.Environ(),
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://"+host+"/.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic "+cred,
+	)
+}
+
+// scrubRemoteURL removes credentials that older versions embedded in the origin URL
+func (g *Git) scrubRemoteURL(ctx context.Context, repoDir string) error {
+	remote, err := g.GetRemoteURL(ctx, repoDir)
+	if err != nil {
+		return err
+	}
+
+	u, err := neturl.Parse(remote)
+	if err != nil || u.Scheme != "https" || u.User == nil {
+		return nil
+	}
+
+	u.User = nil
+	return exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "remote", "set-url", "origin", u.String()).Run()
 }
 
 // Pull performs a git pull in the specified directory
@@ -167,7 +190,11 @@ func (g *Git) Fetch(ctx context.Context, repoDir string) error {
 // This updates all remote-tracking branches without modifying the working directory.
 // Use --prune to remove local references to branches deleted on remote.
 func (g *Git) FetchAll(ctx context.Context, repoDir string) error {
+	// Best effort: a stale token in the URL would override the fresh one
+	_ = g.scrubRemoteURL(ctx, repoDir)
+
 	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "fetch", "--all", "--prune")
+	cmd.Env = g.authEnv()
 	if !g.Quiet {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
