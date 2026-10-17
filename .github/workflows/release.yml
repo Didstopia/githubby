@@ -35,6 +35,17 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Using tag: $TAG"
 
+      - name: Refuse to re-release a published tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.get_tag.outputs.tag }}
+        run: |
+          if IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null) && [ "$IS_DRAFT" = "false" ]; then
+            echo "::error::A published GitHub release already exists for $TAG. Delete the release first or use a new tag; re-releasing would move the tag under it."
+            exit 1
+          fi
+
       - name: Ensure tag points to master HEAD (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         run: |
