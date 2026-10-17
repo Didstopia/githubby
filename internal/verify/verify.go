@@ -99,7 +99,7 @@ func (v *Verifier) Run(ctx context.Context) (*Report, error) {
 		checks = append(checks, "gists")
 	}
 	if v.opts.Metadata {
-		checks = append(checks, "metadata issue and pull request counts")
+		checks = append(checks, "metadata issue and pull request counts", "release counts and assets")
 	}
 	rep := newReport(v.opts.Target, checks)
 
@@ -286,6 +286,13 @@ func (v *Verifier) checkMetadata(ctx context.Context, owner, name string, rep *R
 		return
 	}
 
+	v.checkIssuePRCounts(ctx, owner, name, dir, rep)
+	v.checkReleases(ctx, owner, name, dir, rep)
+}
+
+// checkIssuePRCounts checks the export holds as many issues and pulls as GitHub
+func (v *Verifier) checkIssuePRCounts(ctx context.Context, owner, name, dir string, rep *Report) {
+	full := owner + "/" + name
 	issues, ierr := countEntries(filepath.Join(dir, metadata.IssuesFile))
 	pulls, perr := countEntries(filepath.Join(dir, metadata.PullsFile))
 	if ierr != nil {
@@ -308,6 +315,39 @@ func (v *Verifier) checkMetadata(ctx context.Context, owner, name string, rep *R
 	}
 	if perr == nil && pulls != wantPulls {
 		rep.Metadata = append(rep.Metadata, fmt.Sprintf("%s: %d pull requests saved, GitHub has %d", full, pulls, wantPulls))
+	}
+}
+
+// checkReleases checks the export holds as many releases as GitHub, and every
+// release asset GitHub lists is saved with the same size
+func (v *Verifier) checkReleases(ctx context.Context, owner, name, dir string, rep *Report) {
+	full := owner + "/" + name
+	saved, serr := countEntries(filepath.Join(dir, metadata.ReleasesFile))
+	if serr != nil {
+		rep.Metadata = append(rep.Metadata, fmt.Sprintf("%s: %v", full, serr))
+	}
+
+	releases, err := v.gh.GetReleases(ctx, owner, name)
+	if err != nil {
+		rep.errorf("%s: can't list releases on GitHub: %v", full, err)
+		return
+	}
+	if serr == nil && saved != len(releases) {
+		rep.Metadata = append(rep.Metadata, fmt.Sprintf("%s: %d releases saved, GitHub has %d", full, saved, len(releases)))
+	}
+
+	for _, release := range releases {
+		for _, asset := range release.Assets {
+			path := metadata.AssetPath(dir, release, asset)
+			info, err := os.Stat(path)
+			switch {
+			case err != nil:
+				rep.Metadata = append(rep.Metadata, fmt.Sprintf("%s: release %s asset %s missing", full, release.GetTagName(), asset.GetName()))
+			case info.Size() != int64(asset.GetSize()):
+				rep.Metadata = append(rep.Metadata, fmt.Sprintf("%s: release %s asset %s is %d bytes, GitHub has %d",
+					full, release.GetTagName(), asset.GetName(), info.Size(), asset.GetSize()))
+			}
+		}
 	}
 }
 

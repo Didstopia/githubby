@@ -235,6 +235,8 @@ githubby verify --all-orgs --gists --metadata --target ~/backup
 - every pull request head (`refs/pull/<n>/head`) on GitHub exists locally at the same commit
 - every Git LFS object in the history is present locally with the right content (needs `git-lfs`)
 - with `--metadata`: the metadata directory exists and the issue and pull request counts match GitHub
+- with `--metadata`: `releases.json` holds as many releases as GitHub has, and every release asset
+  is saved with the same size as on GitHub
 
 A check that can't run (network error, missing `git-lfs`, a scope the token lacks) is a failure,
 never a skip. The exit code is 0 only when everything is clean. The report, with a timestamp and the

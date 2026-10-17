@@ -105,6 +105,7 @@ func (f *fixture) backup() {
 		require.NoError(f.t, os.MkdirAll(dir, 0755))
 		require.NoError(f.t, os.WriteFile(filepath.Join(dir, metadata.IssuesFile), []byte(`[{"issue":{}}]`), 0644))
 		require.NoError(f.t, os.WriteFile(filepath.Join(dir, metadata.PullsFile), []byte(`[]`), 0644))
+		require.NoError(f.t, os.WriteFile(filepath.Join(dir, metadata.ReleasesFile), []byte(`[]`), 0644))
 	}
 }
 
@@ -339,4 +340,58 @@ func TestVerify_PullRefs(t *testing.T) {
 	assert.Contains(t, got, "Didstopia/tool: pull request #2 missing locally")
 	assert.Contains(t, got, "Didstopia/tool: pull request #1 is at")
 	assert.Len(t, rep.Stale, 2)
+}
+
+func TestVerify_Releases(t *testing.T) {
+	needLFS(t)
+	f := newFixture(t)
+	f.addRepo("a", false)
+	f.addRepo("b", false)
+	f.backup()
+
+	release := &gh.RepositoryRelease{ID: gh.Ptr(int64(1)), TagName: gh.Ptr("v1"), Assets: []*gh.ReleaseAsset{
+		{Name: gh.Ptr("app.zip"), Size: gh.Ptr(3)},
+		{Name: gh.Ptr("app.sig"), Size: gh.Ptr(2)},
+	}}
+	f.api.GetReleasesFunc = func(ctx context.Context, owner, repo string) ([]*gh.RepositoryRelease, error) {
+		if repo == "a" {
+			return []*gh.RepositoryRelease{release}, nil
+		}
+		return nil, nil
+	}
+
+	// GitHub has a release the export doesn't
+	rep := f.verify(Options{Metadata: true})
+	assert.False(t, rep.OK)
+	got := strings.Join(rep.Metadata, "\n")
+	assert.Contains(t, got, "Didstopia/a: 0 releases saved, GitHub has 1")
+	assert.Contains(t, got, "Didstopia/a: release v1 asset app.zip missing")
+	assert.Contains(t, rep.Checks, "release counts and assets")
+
+	// Saved, but one asset is cut short
+	dir := metadata.RepoDir(f.target, "Didstopia", "a")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, metadata.ReleasesFile), []byte(`[{"id":1}]`), 0644))
+	for name, body := range map[string]string{"app.zip": "abc", "app.sig": "x"} {
+		path := metadata.AssetPath(dir, release, &gh.ReleaseAsset{Name: gh.Ptr(name)})
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
+		require.NoError(t, os.WriteFile(path, []byte(body), 0644))
+	}
+	rep = f.verify(Options{Metadata: true})
+	assert.Equal(t, []string{"Didstopia/a: release v1 asset app.sig is 1 bytes, GitHub has 2"}, rep.Metadata)
+
+	path := metadata.AssetPath(dir, release, &gh.ReleaseAsset{Name: gh.Ptr("app.sig")})
+	require.NoError(t, os.WriteFile(path, []byte("xy"), 0644))
+	assert.True(t, f.verify(Options{Metadata: true}).OK)
+
+	// A missing releases.json, or a listing that fails, is a failure
+	require.NoError(t, os.Remove(filepath.Join(dir, metadata.ReleasesFile)))
+	rep = f.verify(Options{Metadata: true})
+	assert.Equal(t, []string{"Didstopia/a: releases.json missing"}, rep.Metadata)
+
+	f.api.GetReleasesFunc = func(ctx context.Context, owner, repo string) ([]*gh.RepositoryRelease, error) {
+		return nil, errors.New("api down")
+	}
+	rep = f.verify(Options{Metadata: true})
+	assert.False(t, rep.OK)
+	assert.Contains(t, strings.Join(rep.Errors, "\n"), "can't list releases on GitHub")
 }
