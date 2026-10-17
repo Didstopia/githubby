@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -207,7 +208,7 @@ func (s *Storage) UpdateProfileLastSync(profileID string) error {
 		return fmt.Errorf("profile not found: %s", profileID)
 	}
 
-	profile.LastSyncAt = s.state.GetLatestSyncForProfile(profileID).CompletedAt
+	profile.LastSyncAt = time.Now()
 	return s.saveInternal()
 }
 
