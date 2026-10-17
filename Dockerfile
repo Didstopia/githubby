@@ -11,7 +11,12 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w \
     -o /githubby .
 
 FROM alpine:3.22
-RUN apk add --no-cache git git-lfs ca-certificates
+# The backup may be owned by another uid than the container runs as, so trust every repo.
+# LFS filters go in the system config, so every uid has them.
+RUN apk add --no-cache git git-lfs ca-certificates \
+    && git config --system --add safe.directory '*' \
+    && git lfs install --system --skip-repo
 COPY --from=builder /githubby /githubby
 ENV GITHUBBY_NO_UPDATE=1
-ENTRYPOINT ["/githubby"]
+# A uid with no home (e.g. Unraid's 99:100) gets HOME=/, which it can't write; root keeps /root
+ENTRYPOINT ["/bin/sh", "-c", "[ -w \"$HOME\" ] || export HOME=/tmp; exec /githubby \"$@\"", "githubby"]

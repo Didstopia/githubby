@@ -90,3 +90,16 @@ jobs:
 
       - name: Smoke test — sync help
         run: docker run --rm githubby:ci sync --help
+
+      - name: Smoke test — runs as Unraid's nobody:users with no home
+        run: |
+          docker run --rm --user 99:100 githubby:ci version
+          # Swap the binary for a probe: the real entrypoint must give it a writable HOME for git-lfs
+          printf '#!/bin/sh\nset -e\ntouch "$HOME/.probe"\ngit lfs install\necho "HOME=$HOME"\n' > "$RUNNER_TEMP/probe"
+          chmod +x "$RUNNER_TEMP/probe"
+          docker run --rm --user 99:100 -v "$RUNNER_TEMP/probe:/githubby:ro" githubby:ci
+          # No keychain in a container: auth status must answer, not hang
+          rc=0; timeout 60 docker run --rm --user 99:100 githubby:ci auth status || rc=$?
+          test "$rc" -ne 124
+          # A checkout owned by another uid is still a usable repo
+          docker run --rm --user 99:100 -v "$PWD:/src:ro" --entrypoint git githubby:ci -C /src status --short

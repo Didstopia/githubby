@@ -317,6 +317,12 @@ docker run --rm -e GITHUBBY_TOKEN=ghp_... -v /mnt/user/Backups/github:/backup \
   verify --all-orgs --gists --metadata --target /backup
 ```
 
+The image runs as any user. On Unraid, pass `--user 99:100` (nobody:users) so the backup files
+belong to the share's owner. A user with no home directory gets `HOME=/tmp`, which is enough
+for git and Git LFS. Pass the token with `GITHUBBY_TOKEN` (or `GITHUB_TOKEN`); there is no
+keychain in a container. Git trusts every repository in the image, so a backup owned by another
+user still works.
+
 Or use `docker-compose.yaml` for persistent setups:
 
 ```yaml
