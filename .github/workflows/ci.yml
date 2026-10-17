@@ -83,5 +83,10 @@ jobs:
       - name: Smoke test — version
         run: docker run --rm githubby:ci version
 
+      - name: Smoke test — git and git-lfs present
+        run: |
+          docker run --rm --entrypoint git githubby:ci --version
+          docker run --rm --entrypoint git githubby:ci lfs version
+
       - name: Smoke test — sync help
         run: docker run --rm githubby:ci sync --help
