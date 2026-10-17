@@ -4,7 +4,7 @@ export GO111MODULE=on
 
 export PATH := $(GOPATH)/bin:$(PATH)
 
-BINARY_VERSION?=0.0.1
+BINARY_VERSION?=dev
 BINARY_OUTPUT?=githubby
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE?=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
