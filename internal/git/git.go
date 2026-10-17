@@ -22,6 +22,7 @@ var (
 	ErrCloneFailed     = errors.New("git clone failed")
 	ErrPullFailed      = errors.New("git pull failed")
 	ErrFetchFailed     = errors.New("git fetch failed")
+	ErrSubmoduleFailed = errors.New("git submodule update failed")
 )
 
 // Git provides Git operations
@@ -98,21 +99,61 @@ func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
 // authEnv returns the environment for a git command, with the token passed as a
 // one-off auth header so it is never written to .git/config. Nil means inherit.
 func (g *Git) authEnv() []string {
+	pairs := g.authConfig()
+	if pairs == nil {
+		return nil
+	}
+	return withConfig(pairs...)
+}
+
+// host returns the GitHub host the token is sent to
+func (g *Git) host() string {
+	if g.Host == "" {
+		return "github.com"
+	}
+	return g.Host
+}
+
+// authConfig returns git config key/value pairs that send the token, or nil without one
+func (g *Git) authConfig() []string {
 	if g.Token == "" {
 		return nil
 	}
+	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + g.Token))
+	return []string{"http.https://" + g.host() + "/.extraheader", "Authorization: Basic " + cred}
+}
 
-	host := g.Host
-	if host == "" {
-		host = "github.com"
+// withConfig returns the current environment plus git config key/value pairs for one command
+func withConfig(pairs ...string) []string {
+	env := append(os.Environ(), fmt.Sprintf("GIT_CONFIG_COUNT=%d", len(pairs)/2))
+	for i := 0; i+1 < len(pairs); i += 2 {
+		env = append(env,
+			fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i/2, pairs[i]),
+			fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i/2, pairs[i+1]),
+		)
+	}
+	return env
+}
+
+// run runs a git command with the given env, wrapping failures in base with git's stderr
+func (g *Git) run(ctx context.Context, env []string, base error, args ...string) error {
+	cmd := exec.CommandContext(ctx, g.GitPath, args...)
+	cmd.Env = env
+
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
+	if !g.Quiet {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	}
 
-	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + g.Token))
-	return append(os.Environ(),
-		"GIT_CONFIG_COUNT=1",
-		"GIT_CONFIG_KEY_0=http.https://"+host+"/.extraheader",
-		"GIT_CONFIG_VALUE_0=Authorization: Basic "+cred,
-	)
+	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderrBuf.String()); msg != "" {
+			return fmt.Errorf("%w: %s", base, msg)
+		}
+		return fmt.Errorf("%w: %v", base, err)
+	}
+	return nil
 }
 
 // scrubRemoteURL removes credentials that older versions embedded in the origin URL

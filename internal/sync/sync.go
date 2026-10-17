@@ -69,6 +69,9 @@ type Options struct {
 	// target directory. This is useful when syncing single repos (e.g., TUI worker)
 	// where archive detection should be done once at the end, not per-repo.
 	SkipArchiveDetection bool
+
+	// Submodules checks out submodules (recursively) after each clone or fetch
+	Submodules bool
 }
 
 // Result represents the result of a sync operation
@@ -90,6 +93,9 @@ type Result struct {
 
 	// Archived repositories (exist locally but not on remote - preserved for backup)
 	Archived []string
+
+	// Warnings are non-fatal problems (e.g. a submodule that failed to check out)
+	Warnings []string
 }
 
 // NewResult creates a new sync result
@@ -101,7 +107,13 @@ func NewResult() *Result {
 		Skipped:  make([]string, 0),
 		Failed:   make(map[string]error),
 		Archived: make([]string, 0),
+		Warnings: make([]string, 0),
 	}
+}
+
+// warn records a non-fatal problem for a repo
+func (r *Result) warn(repoName, format string, args ...any) {
+	r.Warnings = append(r.Warnings, repoName+": "+fmt.Sprintf(format, args...))
 }
 
 // Syncer handles repository synchronization
@@ -283,6 +295,7 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 			} else {
 				result.Updated = append(result.Updated, repoName)
 			}
+			s.afterSync(ctx, repo, localPath, result)
 			s.reportProgress(repoName, status, "")
 			if s.opts.Verbose {
 				if status == ProgressUpToDate {
@@ -302,10 +315,21 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 			}
 		} else {
 			result.Cloned = append(result.Cloned, repoName)
+			s.afterSync(ctx, repo, localPath, result)
 			s.reportProgress(repoName, ProgressCloned, "")
 			if s.opts.Verbose {
 				fmt.Printf("Cloned: %s\n", repoName)
 			}
+		}
+	}
+}
+
+// afterSync runs the optional backup steps for a repo whose git data synced fine.
+// Failures here are warnings: the repo itself is safe.
+func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath string, result *Result) {
+	if s.opts.Submodules {
+		if err := s.git.SubmoduleUpdate(ctx, localPath); err != nil {
+			result.warn(repo.GetFullName(), "submodules: %v", err)
 		}
 	}
 }

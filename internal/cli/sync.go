@@ -230,6 +230,7 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 		IncludePrivate: profile.IncludePrivate,
 		DryRun:         dryRun,
 		Verbose:        verbose,
+		Submodules:     true,
 	}
 
 	// Profiles that picked specific repos sync only those
@@ -294,6 +295,7 @@ func executeSyncWithFlags(ctx context.Context) error {
 		IncludePrivate: syncIncludePrivate,
 		DryRun:         dryRun,
 		Verbose:        verbose,
+		Submodules:     true,
 	}
 
 	// Create syncer
@@ -378,11 +380,21 @@ func printSyncSummary(result *sync.Result) {
 		}
 	}
 
+	if len(result.Warnings) > 0 {
+		fmt.Printf("\nWarnings (%d):\n", len(result.Warnings))
+		for _, w := range result.Warnings {
+			fmt.Printf("  - %s\n", w)
+		}
+	}
+
 	fmt.Println(strings.Repeat("=", 50))
 	summary := fmt.Sprintf("Total: %d cloned, %d updated, %d skipped, %d failed",
 		len(result.Cloned), len(result.Updated), len(result.Skipped), len(result.Failed))
 	if len(result.Archived) > 0 {
 		summary += fmt.Sprintf(", %d archived", len(result.Archived))
+	}
+	if len(result.Warnings) > 0 {
+		summary += fmt.Sprintf(", %d warnings", len(result.Warnings))
 	}
 	fmt.Println(summary)
 }
