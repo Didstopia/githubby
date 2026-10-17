@@ -107,6 +107,16 @@ func (f *fixture) backup() {
 		require.NoError(f.t, os.WriteFile(filepath.Join(dir, metadata.PullsFile), []byte(`[]`), 0644))
 		require.NoError(f.t, os.WriteFile(filepath.Join(dir, metadata.ReleasesFile), []byte(`[]`), 0644))
 	}
+	f.writeOwnerMeta("Didstopia", metadata.OrgFiles)
+	f.writeOwnerMeta("Dids", metadata.UserFiles)
+}
+
+func (f *fixture) writeOwnerMeta(login string, files []string) {
+	dir := metadata.OwnerDir(f.target, login)
+	require.NoError(f.t, os.MkdirAll(dir, 0755))
+	for _, file := range files {
+		require.NoError(f.t, os.WriteFile(filepath.Join(dir, file), []byte(`[]`), 0644))
+	}
 }
 
 func (f *fixture) verify(opts Options) *Report {
@@ -441,4 +451,34 @@ func TestVerify_Submodules(t *testing.T) {
 	require.Len(t, rep.Submodules, 1)
 	assert.Contains(t, rep.Submodules[0], "Didstopia/tool: submodule lib/gone is not checked out")
 	assert.Contains(t, rep.Submodules[0], "gone upstream")
+}
+
+func TestVerify_OwnerMetadata(t *testing.T) {
+	needLFS(t)
+	f := newFixture(t)
+	f.addRepo("a", false)
+	f.backup()
+	f.api.ListUserOrgsFunc = func(ctx context.Context) ([]*gh.Organization, error) {
+		return []*gh.Organization{{Login: gh.Ptr("Didstopia")}, {Login: gh.Ptr("Other")}}, nil
+	}
+
+	assert.True(t, f.verify(Options{Metadata: true}).OK)
+
+	org := metadata.OwnerDir(f.target, "Didstopia")
+	require.NoError(t, os.Remove(filepath.Join(org, "teams.json")))
+	require.NoError(t, os.WriteFile(filepath.Join(org, metadata.RulesetsFile), []byte("[{"), 0644))
+	rep := f.verify(Options{Metadata: true})
+	assert.False(t, rep.OK)
+	assert.Equal(t, []string{"org Didstopia: rulesets.json is not valid JSON", "org Didstopia: teams.json missing"}, rep.Metadata)
+
+	// All orgs: the user's own export and every org's are checked
+	require.NoError(t, os.RemoveAll(metadata.OwnerDir(f.target, "Dids")))
+	rep = f.verify(Options{Metadata: true, AllOrgs: true})
+	got := strings.Join(rep.Metadata, "\n")
+	assert.Contains(t, got, "user Dids: metadata directory missing")
+	assert.Contains(t, got, "org Other: metadata directory missing")
+	assert.Contains(t, got, "org Didstopia: teams.json missing")
+
+	// Without --metadata nothing is said about it
+	assert.Empty(t, f.verify(Options{AllOrgs: true}).Metadata)
 }

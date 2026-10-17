@@ -101,7 +101,7 @@ func (v *Verifier) Run(ctx context.Context) (*Report, error) {
 		checks = append(checks, "gists")
 	}
 	if v.opts.Metadata {
-		checks = append(checks, "metadata issue and pull request counts", "release counts and assets")
+		checks = append(checks, "metadata issue and pull request counts", "release counts and assets", "user and org metadata files")
 	}
 	rep := newReport(v.opts.Target, checks)
 
@@ -124,9 +124,14 @@ func (v *Verifier) Run(ctx context.Context) (*Report, error) {
 }
 
 func (v *Verifier) check(ctx context.Context, rep *Report) {
-	repos, err := v.listRepos(ctx, rep)
+	repos, owners, err := v.listRepos(ctx, rep)
 	if err != nil {
 		rep.errorf("listing repos: %v", err)
+	}
+	if v.opts.Metadata {
+		for _, o := range owners {
+			v.checkOwnerMetadata(o, rep)
+		}
 	}
 	for _, repo := range repos {
 		if ctx.Err() != nil {
@@ -141,25 +146,61 @@ func (v *Verifier) check(ctx context.Context, rep *Report) {
 	}
 }
 
-// listRepos lists every repo GitHub has for the chosen account, private ones included
-func (v *Verifier) listRepos(ctx context.Context, rep *Report) ([]*gh.Repository, error) {
+// owner is a user or org whose own metadata export is checked
+type owner struct {
+	kind  string
+	login string
+	files []string
+}
+
+// listRepos lists every repo GitHub has for the chosen account, private ones included,
+// plus the users and orgs whose metadata sync exports
+func (v *Verifier) listRepos(ctx context.Context, rep *Report) ([]*gh.Repository, []owner, error) {
 	listOpts := &github.ListOptions{IncludePrivate: true}
+	user := func(login string) owner { return owner{"user", login, metadata.UserFiles} }
+	org := func(login string) owner { return owner{"org", login, metadata.OrgFiles} }
 	switch {
 	case v.opts.AllOrgs:
 		account, err := sync.New(v.gh, v.git, &sync.Options{IncludePrivate: true}).ListAccount(ctx, v.opts.User)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		for org, ferr := range account.Failed {
-			rep.errorf("listing repos of %s: %v", org, ferr)
+		for o, ferr := range account.Failed {
+			rep.errorf("listing repos of %s: %v", o, ferr)
 		}
-		return account.Repos, nil
+		owners := []owner{user(account.Login)}
+		for _, o := range account.Orgs {
+			owners = append(owners, org(o))
+		}
+		return account.Repos, owners, nil
 	case v.opts.User != "":
-		return v.gh.ListUserRepos(ctx, v.opts.User, listOpts)
+		repos, err := v.gh.ListUserRepos(ctx, v.opts.User, listOpts)
+		return repos, []owner{user(v.opts.User)}, err
 	case v.opts.Org != "":
-		return v.gh.ListOrgRepos(ctx, v.opts.Org, listOpts)
+		repos, err := v.gh.ListOrgRepos(ctx, v.opts.Org, listOpts)
+		return repos, []owner{org(v.opts.Org)}, err
 	}
-	return nil, fmt.Errorf("no account chosen")
+	return nil, nil, fmt.Errorf("no account chosen")
+}
+
+// checkOwnerMetadata checks a user's or org's <login>.meta has every file the export
+// writes, each one valid JSON
+func (v *Verifier) checkOwnerMetadata(o owner, rep *Report) {
+	name := o.kind + " " + o.login
+	dir := metadata.OwnerDir(v.opts.Target, o.login)
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		rep.Metadata = append(rep.Metadata, name+": metadata directory missing")
+		return
+	}
+	for _, file := range o.files {
+		raw, err := os.ReadFile(filepath.Join(dir, file))
+		switch {
+		case err != nil:
+			rep.Metadata = append(rep.Metadata, fmt.Sprintf("%s: %s missing", name, file))
+		case !json.Valid(raw):
+			rep.Metadata = append(rep.Metadata, fmt.Sprintf("%s: %s is not valid JSON", name, file))
+		}
+	}
 }
 
 func (v *Verifier) checkRepo(ctx context.Context, repo *gh.Repository, rep *Report) {

@@ -237,11 +237,13 @@ githubby verify --all-orgs --gists --metadata --target ~/backup
 - every submodule (nested ones too) is checked out at the commit the repo records and passes
   `git fsck`; a submodule whose repo was deleted upstream can't be backed up, and fails here
 - with `--metadata`: the metadata directory exists and the issue and pull request counts match GitHub
+- with `--metadata`: each org's `<org>.meta` (and your own `<you>.meta`) has every file the export
+  writes, each one valid JSON
 - with `--metadata`: `releases.json` holds as many releases as GitHub has, and every release asset
   is saved with the same size as on GitHub
 
 A check that can't run (network error, missing `git-lfs`, a scope the token lacks) is a failure,
-never a skip. The exit code is 0 only when everything is clean. The report, with a timestamp and the
+never a skip. So is an org or user metadata file that sync skipped for a missing scope. The exit code is 0 only when everything is clean. The report, with a timestamp and the
 list of every item checked, is written to `<target>/verify-report.json`. Check that a repository is
 listed in `items` there before you delete it from GitHub.
 

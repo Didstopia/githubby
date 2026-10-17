@@ -490,3 +490,16 @@ func TestHelpers(t *testing.T) {
 	assert.ErrorContains(t, rep.Failed["a"], "one")
 	assert.ErrorContains(t, rep.Failed["a"], "two")
 }
+
+func TestOwnerFilesMatchExports(t *testing.T) {
+	e := New(gh.NewClient(nil), nil, t.TempDir())
+	names := func(parts []part) []string {
+		out := []string{}
+		for _, p := range parts {
+			out = append(out, p.file)
+		}
+		return out
+	}
+	assert.Equal(t, OrgFiles, names(e.orgParts("o")))
+	assert.Equal(t, UserFiles, names(e.userParts("u")))
+}
