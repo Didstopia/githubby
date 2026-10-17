@@ -123,26 +123,26 @@ func TestCheckAndAutoUpdate(t *testing.T) {
 			"GET /repos/Didstopia/githubby/releases": route(500, `{"message":"boom"}`),
 		})
 		var restarted bool
-		out, _ := captureOutput(t, func() { restarted = checkAndAutoUpdate(context.Background()) })
+		_, errOut := captureOutput(t, func() { restarted = checkAndAutoUpdate(context.Background()) })
 		assert.False(t, restarted)
-		assert.Contains(t, out, "Checking for updates...")
+		assert.Contains(t, errOut, "Checking for updates...")
 	})
 	t.Run("already up to date", func(t *testing.T) {
 		withVersion(t, "1.0.0")
 		fakeGitHub(t, releaseRoutes("1.0.0"))
 		var restarted bool
-		out, _ := captureOutput(t, func() { restarted = checkAndAutoUpdate(context.Background()) })
+		_, errOut := captureOutput(t, func() { restarted = checkAndAutoUpdate(context.Background()) })
 		assert.False(t, restarted)
-		assert.NotContains(t, out, "Updating to")
+		assert.NotContains(t, errOut, "Updating to")
 	})
 	t.Run("failed install carries on with the current version", func(t *testing.T) {
 		withVersion(t, "1.0.0")
 		fakeGitHub(t, releaseRoutes("2.0.0"))
 		var restarted bool
-		out, errOut := captureOutput(t, func() { restarted = checkAndAutoUpdate(context.Background()) })
+		_, errOut := captureOutput(t, func() { restarted = checkAndAutoUpdate(context.Background()) })
 		assert.False(t, restarted)
-		assert.Contains(t, out, "Updating to v2.0.0...")
-		assert.Contains(t, out, "Continuing with current version...")
+		assert.Contains(t, errOut, "Updating to v2.0.0...")
+		assert.Contains(t, errOut, "Continuing with current version...")
 		assert.Contains(t, errOut, "Update failed")
 	})
 }

@@ -32,7 +32,7 @@ func TestSync_FlagValidation(t *testing.T) {
 	}{
 		{"bad schedule", []string{"sync", "-u", "octo", "-T", "/x", "--schedule", "nope"}, "schedule"},
 		{"target missing", []string{"sync", "-u", "octo"}, "--target is required"},
-		{"user and org missing", []string{"sync", "-T", "/x"}, "either --user or --org"},
+		{"user and org missing", []string{"sync", "-T", "/x"}, "either --user, --org or --all-orgs"},
 		{"user and org together", []string{"sync", "-u", "a", "-o", "b", "-T", "/x"}, "only one of --user or --org"},
 		{"profile and user together", []string{"sync", "--profile", "p", "-u", "a"}, "none of the others can be"},
 		{"profile and all-profiles together", []string{"sync", "--profile", "p", "--all-profiles"}, "none of the others can be"},
@@ -102,7 +102,7 @@ func TestSync_AuthAndAPIFailures(t *testing.T) {
 		fakeGitHub(t, map[string]fakeRoute{"GET /users/octo/repos": route(500, `{"message":"boom"}`)})
 		res := runCLI(t, "", "sync", "-u", "octo", "-T", t.TempDir(), "--token", "tok")
 		require.Error(t, res.err)
-		assert.Contains(t, res.err.Error(), "failed to list user repos")
+		assert.Contains(t, res.err.Error(), "failed to list repos")
 	})
 	t.Run("git missing", func(t *testing.T) {
 		testEnv(t)

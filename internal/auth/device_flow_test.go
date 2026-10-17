@@ -50,7 +50,7 @@ const codeBody = "device_code=DEV&user_code=ABCD-1234&verification_uri=https%3A%
 func TestDefaultDeviceFlowOptions(t *testing.T) {
 	o := DefaultDeviceFlowOptions()
 	assert.Equal(t, GitHubOAuthClientID, o.ClientID)
-	assert.Equal(t, []string{"repo", "read:org"}, o.Scopes)
+	assert.Equal(t, DefaultScopeList(), o.Scopes)
 	assert.Equal(t, DefaultHostname, o.Hostname)
 }
 

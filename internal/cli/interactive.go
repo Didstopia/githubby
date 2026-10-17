@@ -127,7 +127,7 @@ func RunTUI() error {
 		app.RegisterScreen(tui.ScreenOnboarding, screens.NewOnboarding(ctx, screens.WithEmbeddedMode(), screens.WithStorage(storage)))
 	}
 
-	// Run the app directly (not RunApp which creates a new instance)
+	// Run the app we just built
 	return runAppInstance(ctx, app)
 }
 

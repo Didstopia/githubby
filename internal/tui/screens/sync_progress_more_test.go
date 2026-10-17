@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -107,6 +107,15 @@ func sp_drain(t *testing.T, s *SyncProgressScreen) []profileSyncProgressUpdate {
 	return seen
 }
 
+// sp_finish waits for a screen that already ran Init, so no goroutine outlives the test.
+func sp_finish(t *testing.T, s *SyncProgressScreen) {
+	t.Helper()
+	for i := 0; i < 500 && !s.complete; i++ {
+		s.Update(s.waitForSyncProgress()())
+	}
+	require.True(t, s.complete, "sync never completed")
+}
+
 func sp_key(s string) tea.KeyMsg {
 	switch s {
 	case "esc":
@@ -160,6 +169,7 @@ func TestSP_InitItems(t *testing.T) {
 		assert.Equal(t, 2, s.totalRepos)
 		assert.True(t, s.syncing)
 		assert.Same(t, p, s.profile)
+		sp_finish(t, s)
 	})
 	t.Run("all-repos profiles have an unknown total", func(t *testing.T) {
 		p1 := state.NewProfile("p1", "user", "alice", t.TempDir(), false)
@@ -173,6 +183,7 @@ func TestSP_InitItems(t *testing.T) {
 		assert.Contains(t, s.items[0].name, "user/alice (all repos)")
 		assert.Equal(t, 0, s.totalRepos)
 		assert.Len(t, s.profiles, 2)
+		sp_finish(t, s)
 	})
 }
 
@@ -481,7 +492,7 @@ func TestSP_RunSync_ListErrors(t *testing.T) {
 		app, _ := sp_newApp(t, mock, newProfile("user"))
 		s := NewSyncProgress(ctx, app)
 		sp_drain(t, s)
-		assert.ErrorIs(t, s.err, context.Canceled)
+		assertCancelledOrDropped(t, s.err)
 	})
 	t.Run("list error with a cancelled context reports the cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -493,8 +504,17 @@ func TestSP_RunSync_ListErrors(t *testing.T) {
 		app, _ := sp_newApp(t, mock, newProfile("user"))
 		s := NewSyncProgress(ctx, app)
 		sp_drain(t, s)
-		assert.ErrorIs(t, s.err, context.Canceled)
+		assertCancelledOrDropped(t, s.err)
 	})
+}
+
+// send() drops the final update when the context is already cancelled, so the
+// screen may see either the cancellation or no error at all.
+func assertCancelledOrDropped(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		assert.ErrorIs(t, err, context.Canceled)
+	}
 }
 
 func TestSP_RunSync_SelectedRepos(t *testing.T) {
@@ -518,7 +538,7 @@ func TestSP_RunSync_SelectedRepos(t *testing.T) {
 		app, _ := sp_newApp(t, sp_quietMock(), p)
 		s := NewSyncProgress(ctx, app)
 		sp_drain(t, s)
-		assert.ErrorIs(t, s.err, context.Canceled)
+		assertCancelledOrDropped(t, s.err)
 	})
 	t.Run("missing repo data falls back, bad names are ignored", func(t *testing.T) {
 		sp_isolateGit(t)

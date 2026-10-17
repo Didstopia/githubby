@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
-	gh "github.com/google/go-github/v68/github"
+	gh "github.com/google/go-github/v86/github"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -226,7 +226,7 @@ func TestSW_SourceUserPath(t *testing.T) {
 
 	// Answering the private question starts the repo fetch.
 	w.privateForm.State = huh.StateCompleted
-	_, cmd = w.Update(struct{}{})
+	_, _ = w.Update(struct{}{})
 	assert.Equal(t, WizardStepFetchRepos, w.step)
 	assert.True(t, w.loading)
 	assert.Contains(t, w.View(), "Fetching repositories from alice")

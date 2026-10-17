@@ -75,4 +75,3 @@ func TestSaveTo_UnwritablePath(t *testing.T) {
 	err := DefaultConfig().SaveTo(filepath.Join(t.TempDir(), "missing", "cfg.yaml"))
 	assert.Error(t, err)
 }
-

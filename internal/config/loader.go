@@ -86,7 +86,13 @@ func (l *Loader) InjectToCommand(cmd *cobra.Command) {
 			_ = sv.Replace(l.viper.GetStringSlice(f.Name))
 			return
 		}
-		cmd.Flags().Set(f.Name, l.viper.GetString(f.Name))
+		// Setting a flag marks it as changed, which breaks mutually exclusive flag
+		// groups (e.g. --profile vs --org) when the config only holds the empty default.
+		value := l.viper.GetString(f.Name)
+		if f.Value.String() == value {
+			return
+		}
+		cmd.Flags().Set(f.Name, value)
 	})
 }
 

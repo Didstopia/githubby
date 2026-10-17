@@ -16,16 +16,16 @@ func TestRootGlobalFlags(t *testing.T) {
 	testEnv(t)
 	res := runCLI(t, "", "version", "--verbose", "--dry-run", "--token", "abc")
 	require.NoError(t, res.err)
-	assert.True(t, GetVerbose())
-	assert.True(t, GetDryRun())
-	assert.Equal(t, "abc", GetToken())
-	assert.Equal(t, logrus.DebugLevel, GetLogger().GetLevel())
+	assert.True(t, verbose)
+	assert.True(t, dryRun)
+	assert.Equal(t, "abc", token)
+	assert.Equal(t, logrus.DebugLevel, log.GetLevel())
 
 	res = runCLI(t, "", "version")
 	require.NoError(t, res.err)
-	assert.False(t, GetVerbose())
-	assert.False(t, GetDryRun())
-	assert.Equal(t, logrus.InfoLevel, GetLogger().GetLevel())
+	assert.False(t, verbose)
+	assert.False(t, dryRun)
+	assert.Equal(t, logrus.InfoLevel, log.GetLevel())
 }
 
 func TestRootCreatesDefaultConfigFile(t *testing.T) {
@@ -40,27 +40,7 @@ func TestConfigFileValuesFillFlags(t *testing.T) {
 	require.NoError(t, os.WriteFile(home+"/.githubby.yaml", []byte("verbose: true\n"), 0o600))
 	res := runCLI(t, "", "version")
 	require.NoError(t, res.err)
-	assert.True(t, GetVerbose(), "verbose from the config file applies when the flag is absent")
-}
-
-func TestGetTokenWithAuth(t *testing.T) {
-	testEnv(t)
-	token = "from-flag"
-	t.Cleanup(func() { token = "" })
-	got, err := GetTokenWithAuth(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "from-flag", got)
-
-	token = ""
-	t.Setenv("GITHUB_TOKEN", "from-env")
-	got, err = GetTokenWithAuth(context.Background())
-	require.NoError(t, err)
-	assert.Equal(t, "from-env", got)
-
-	t.Setenv("GITHUB_TOKEN", "")
-	got, err = GetTokenWithAuth(context.Background())
-	require.NoError(t, err)
-	assert.Empty(t, got)
+	assert.True(t, verbose, "verbose from the config file applies when the flag is absent")
 }
 
 func TestExecute_RunsACommand(t *testing.T) {

@@ -73,11 +73,6 @@ func releaseNetwork(t *testing.T, version string) {
 	})
 }
 
-func newTestApp(t *testing.T, opts ...AppOption) *App {
-	t.Helper()
-	return NewApp(opts...)
-}
-
 func newStorage(t *testing.T) *state.Storage {
 	t.Helper()
 	return state.NewStorageWithPath(filepath.Join(t.TempDir(), "state.yaml"))
@@ -785,17 +780,4 @@ func TestRunAppInstance_PicksStartScreenAndReportsRestartFailure(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "restart failed")
 	})
-}
-
-func TestRunApp_AndLegacyWrappers(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	assert.NotPanics(t, func() {
-		_ = RunApp(ctx, WithContext(ctx))
-		_ = Run(ctx, ScreenOnboarding, false, "")
-		_ = RunOnboarding(ctx)
-		_ = RunDashboard(ctx, "alice")
-	})
-
 }
