@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -249,4 +250,36 @@ func TestLFS_Install_UnsupportedOS(t *testing.T) {
 		err := lfs.Install(context.Background())
 		assert.NoError(t, err)
 	})
+}
+
+func TestLFS_FetchAll(t *testing.T) {
+	lfsPath, err := exec.LookPath("git-lfs")
+	if err != nil {
+		t.Skip("git-lfs is not installed")
+	}
+	g, err := NewQuiet()
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	assert.ErrorIs(t, (&LFS{Git: g}).FetchAll(ctx, t.TempDir()), ErrLFSNotInstalled)
+
+	runGit(t, "lfs", "install", "--skip-repo")
+	up := newUpstream(t, map[string]string{"a.txt": "a"})
+	runGit(t, "-C", up, "lfs", "track", "*.bin")
+	runGit(t, "-C", up, "checkout", "-q", "-b", "side")
+	require.NoError(t, os.WriteFile(filepath.Join(up, "big.bin"), []byte("lfs data"), 0644))
+	runGit(t, "-C", up, "add", ".")
+	runGit(t, "-C", up, "-c", "user.email=t@e", "-c", "user.name=T", "commit", "-q", "-m", "lfs on a side branch")
+	runGit(t, "-C", up, "checkout", "-q", "main")
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	require.NoError(t, g.Clone(ctx, up, clone))
+
+	lfs := &LFS{LFSPath: lfsPath, Git: g, Quiet: true}
+	require.NoError(t, lfs.FetchAll(ctx, clone))
+
+	oid := strings.Fields(runGit(t, "-C", clone, "lfs", "ls-files", "--all", "--long"))[0]
+	assert.FileExists(t, filepath.Join(clone, ".git", "lfs", "objects", oid[0:2], oid[2:4], oid))
+
+	assert.ErrorIs(t, lfs.FetchAll(ctx, t.TempDir()), ErrLFSFetchFailed)
 }

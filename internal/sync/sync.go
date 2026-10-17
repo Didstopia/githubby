@@ -75,6 +75,10 @@ type Options struct {
 
 	// Wikis clones or fetches each repo's wiki into <owner>/<repo>.wiki
 	Wikis bool
+
+	// LFSAll downloads the LFS objects of every ref after each clone or fetch,
+	// not just those of the checked-out branch
+	LFSAll bool
 }
 
 // Result represents the result of a sync operation
@@ -377,7 +381,7 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 			} else {
 				result.Updated = append(result.Updated, repoName)
 			}
-			s.afterSync(ctx, repo, localPath, result)
+			s.afterSync(ctx, repo, localPath, status != ProgressUpToDate, result)
 			s.reportProgress(repoName, status, "")
 			if s.opts.Verbose {
 				if status == ProgressUpToDate {
@@ -397,7 +401,7 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 			}
 		} else {
 			result.Cloned = append(result.Cloned, repoName)
-			s.afterSync(ctx, repo, localPath, result)
+			s.afterSync(ctx, repo, localPath, true, result)
 			s.reportProgress(repoName, ProgressCloned, "")
 			if s.opts.Verbose {
 				fmt.Printf("Cloned: %s\n", repoName)
@@ -458,11 +462,24 @@ func IsRepoNotFound(err error) bool {
 }
 
 // afterSync runs the optional backup steps for a repo whose git data synced fine.
-// Failures here are warnings: the repo itself is safe.
-func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath string, result *Result) {
+// changed is false when fast sync found nothing new. Failures here are warnings:
+// the repo itself is safe, and verify catches missing LFS objects.
+func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath string, changed bool, result *Result) {
 	if s.opts.Submodules {
 		if err := s.git.SubmoduleUpdate(ctx, localPath); err != nil {
 			result.warn(repo.GetFullName(), "submodules: %v", err)
+		}
+	}
+
+	// Any repo may have LFS files on some branch, so this doesn't trust .gitattributes
+	if s.opts.LFSAll && changed {
+		switch {
+		case s.lfs.IsInstalled():
+			if err := s.lfs.FetchAll(ctx, localPath); err != nil {
+				result.warn(repo.GetFullName(), "LFS: %v", err)
+			}
+		case s.lfs.RepoUsesLFS(localPath):
+			result.warn(repo.GetFullName(), "LFS: %v", git.ErrLFSNotInstalled)
 		}
 	}
 }

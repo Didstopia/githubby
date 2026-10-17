@@ -256,6 +256,7 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 		Verbose:        verbose,
 		Submodules:     true,
 		Wikis:          true,
+		LFSAll:         true,
 	}
 
 	// Profiles that picked specific repos sync only those
@@ -349,6 +350,7 @@ func runFlagSync(ctx context.Context, ghClient github.Client, git *gitpkg.Git, e
 		Verbose:        verbose,
 		Submodules:     true,
 		Wikis:          true,
+		LFSAll:         true,
 	}
 	syncer := sync.New(ghClient, git, opts)
 

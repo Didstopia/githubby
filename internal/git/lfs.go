@@ -16,6 +16,7 @@ import (
 var (
 	ErrLFSNotInstalled = errors.New("git-lfs is not installed")
 	ErrLFSInstallFail  = errors.New("failed to install git-lfs")
+	ErrLFSFetchFailed  = errors.New("git lfs fetch failed")
 )
 
 // LFS provides Git LFS operations
@@ -179,6 +180,15 @@ func (l *LFS) Fetch(ctx context.Context, repoDir string) error {
 		cmd.Stderr = os.Stderr
 	}
 	return cmd.Run()
+}
+
+// FetchAll runs 'git lfs fetch --all' to download the LFS objects of every ref,
+// not just the checked-out one, so a backup has all of them
+func (l *LFS) FetchAll(ctx context.Context, repoDir string) error {
+	if !l.IsInstalled() {
+		return ErrLFSNotInstalled
+	}
+	return l.Git.run(ctx, l.Git.authEnv(), ErrLFSFetchFailed, "-C", repoDir, "lfs", "fetch", "--all")
 }
 
 // EnsureLFS ensures Git LFS is installed and configured
