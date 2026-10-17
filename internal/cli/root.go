@@ -13,7 +13,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"github.com/Didstopia/githubby/internal/auth"
 	"github.com/Didstopia/githubby/internal/config"
 	"github.com/Didstopia/githubby/internal/update"
 )
@@ -292,35 +291,4 @@ func showUpdateNotification(updateChan <-chan *update.Result) {
 	case <-time.After(100 * time.Millisecond):
 		// Don't block if update check is still running
 	}
-}
-
-// GetLogger returns the global logger
-func GetLogger() *logrus.Logger {
-	return log
-}
-
-// GetToken returns the configured token, checking multiple sources
-// Priority: CLI flag > environment variable > stored token (keychain/config)
-func GetToken() string {
-	return token
-}
-
-// GetTokenWithAuth returns the token using the auth package's resolution logic
-// This checks CLI flag, environment variable, and stored tokens
-func GetTokenWithAuth(ctx context.Context) (string, error) {
-	result, err := auth.GetToken(ctx, token, "")
-	if err != nil {
-		return "", err
-	}
-	return result.Token, nil
-}
-
-// GetVerbose returns the verbose flag
-func GetVerbose() bool {
-	return verbose
-}
-
-// GetDryRun returns the dry-run flag
-func GetDryRun() bool {
-	return dryRun
 }

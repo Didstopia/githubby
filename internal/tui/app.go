@@ -1022,23 +1022,6 @@ func RunAppInstance(ctx context.Context, app *App) error {
 	return err
 }
 
-// Legacy functions for backward compatibility
-
-// Run starts the TUI application (legacy)
-func Run(ctx context.Context, startScreen Screen, isAuthenticated bool, username string) error {
-	return RunApp(ctx, WithContext(ctx), WithAuth(isAuthenticated, username, ""))
-}
-
-// RunOnboarding starts the TUI in onboarding mode (legacy)
-func RunOnboarding(ctx context.Context) error {
-	return Run(ctx, ScreenOnboarding, false, "")
-}
-
-// RunDashboard starts the TUI in dashboard mode (legacy)
-func RunDashboard(ctx context.Context, username string) error {
-	return Run(ctx, ScreenDashboard, true, username)
-}
-
 // PrintNonInteractiveHelp prints help when not in an interactive terminal
 func PrintNonInteractiveHelp() {
 	fmt.Println("GitHubby - GitHub CLI Utility")

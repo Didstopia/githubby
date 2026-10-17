@@ -131,30 +131,6 @@ func (g *Git) scrubRemoteURL(ctx context.Context, repoDir string) error {
 	return exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "remote", "set-url", "origin", u.String()).Run()
 }
 
-// Pull performs a git pull in the specified directory
-func (g *Git) Pull(ctx context.Context, repoDir string) error {
-	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "pull")
-	if !g.Quiet {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-
-	// Always capture stderr for error reporting
-	var stderrBuf strings.Builder
-	if g.Quiet {
-		cmd.Stderr = &stderrBuf
-	}
-
-	if err := cmd.Run(); err != nil {
-		errMsg := stderrBuf.String()
-		if errMsg != "" {
-			return fmt.Errorf("%w: %s", ErrPullFailed, strings.TrimSpace(errMsg))
-		}
-		return fmt.Errorf("%w: %v", ErrPullFailed, err)
-	}
-	return nil
-}
-
 // IsGitRepo checks if a directory is a git repository
 func (g *Git) IsGitRepo(dir string) bool {
 	gitDir := filepath.Join(dir, ".git")
@@ -173,16 +149,6 @@ func (g *Git) GetRemoteURL(ctx context.Context, repoDir string) (string, error) 
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
-}
-
-// Fetch performs a git fetch in the specified directory
-func (g *Git) Fetch(ctx context.Context, repoDir string) error {
-	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "fetch", "--all")
-	if !g.Quiet {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	return cmd.Run()
 }
 
 // FetchAll fetches all branches from all remotes with pruning.

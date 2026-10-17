@@ -384,7 +384,7 @@ make clean    # Clean build artifacts
 
 ```
 githubby/
-├── cmd/githubby/main.go      # Entry point
+├── main.go                   # Entry point
 ├── internal/
 │   ├── auth/                 # OAuth & keychain storage
 │   ├── cli/                  # Cobra commands

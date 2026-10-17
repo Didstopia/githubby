@@ -65,9 +65,6 @@ type Options struct {
 	// OnProgress is called to report sync progress (optional)
 	OnProgress ProgressCallback
 
-	// Concurrency sets the number of parallel sync operations (default: 1)
-	Concurrency int
-
 	// SkipArchiveDetection skips the detectArchived() call which walks the entire
 	// target directory. This is useful when syncing single repos (e.g., TUI worker)
 	// where archive detection should be done once at the end, not per-repo.
@@ -197,13 +194,6 @@ func (s *Syncer) SyncSelectedRepos(ctx context.Context, fullNames []string) (*Re
 	return result, err
 }
 
-// syncResult holds the result of syncing a single repo
-type syncResult struct {
-	repoName string
-	status   ProgressStatus
-	err      error
-}
-
 func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result, error) {
 	result := NewResult()
 
@@ -214,22 +204,7 @@ func (s *Syncer) syncRepos(ctx context.Context, repos []*gh.Repository) (*Result
 		}
 	}
 
-	// Default concurrency to 1 (sequential), max 8 to avoid rate limits
-	concurrency := s.opts.Concurrency
-	if concurrency <= 0 {
-		concurrency = 1
-	}
-	if concurrency > 8 {
-		concurrency = 8
-	}
-
-	// For sequential processing, use the simple loop
-	if concurrency == 1 {
-		return s.syncReposSequential(ctx, repos, result)
-	}
-
-	// Parallel processing with worker pool
-	return s.syncReposParallel(ctx, repos, result, concurrency)
+	return s.syncReposSequential(ctx, repos, result)
 }
 
 func (s *Syncer) syncReposSequential(ctx context.Context, repos []*gh.Repository, result *Result) (*Result, error) {
@@ -250,143 +225,6 @@ func (s *Syncer) syncReposSequential(ctx context.Context, repos []*gh.Repository
 	}
 
 	return result, nil
-}
-
-func (s *Syncer) syncReposParallel(ctx context.Context, repos []*gh.Repository, result *Result, concurrency int) (*Result, error) {
-	// Create channels
-	jobs := make(chan *gh.Repository, len(repos))
-	results := make(chan syncResult, len(repos))
-
-	// Create a child context for cancellation
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Start workers
-	for i := 0; i < concurrency; i++ {
-		go s.syncWorker(ctx, jobs, results)
-	}
-
-	// Send jobs
-	for _, repo := range repos {
-		jobs <- repo
-	}
-	close(jobs)
-
-	// Collect results
-	for i := 0; i < len(repos); i++ {
-		select {
-		case <-ctx.Done():
-			return result, ctx.Err()
-		case res := <-results:
-			switch res.status {
-			case ProgressCloned:
-				result.Cloned = append(result.Cloned, res.repoName)
-			case ProgressUpdated:
-				result.Updated = append(result.Updated, res.repoName)
-			case ProgressUpToDate:
-				result.UpToDate = append(result.UpToDate, res.repoName)
-			case ProgressSkipped:
-				result.Skipped = append(result.Skipped, res.repoName)
-			case ProgressFailed:
-				result.Failed[res.repoName] = res.err
-			}
-		}
-	}
-
-	// Detect archived repos (exist locally but not on remote)
-	// Skip if SkipArchiveDetection is set (e.g., TUI syncs single repos and handles this separately)
-	if !s.opts.SkipArchiveDetection {
-		result.Archived = s.detectArchived(repos)
-	}
-
-	return result, nil
-}
-
-func (s *Syncer) syncWorker(ctx context.Context, jobs <-chan *gh.Repository, results chan<- syncResult) {
-	for repo := range jobs {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		repoName := repo.GetFullName()
-
-		// Check include/exclude filters
-		if !s.shouldSync(repo.GetName()) {
-			if s.opts.Verbose {
-				fmt.Printf("Skipping %s (filtered)\n", repoName)
-			}
-			s.reportProgress(repoName, ProgressSkipped, "filtered")
-			results <- syncResult{repoName: repoName, status: ProgressSkipped}
-			continue
-		}
-
-		// Determine local path
-		localPath := filepath.Join(s.opts.Target, repo.GetOwner().GetLogin(), repo.GetName())
-
-		if s.opts.Verbose {
-			fmt.Printf("Processing %s -> %s\n", repoName, localPath)
-		}
-
-		if s.opts.DryRun {
-			if s.git.IsGitRepo(localPath) {
-				if s.opts.Verbose {
-					fmt.Printf("[DRY RUN] Would update: %s\n", repoName)
-				}
-				s.reportProgress(repoName, ProgressUpdated, "dry-run")
-				results <- syncResult{repoName: repoName, status: ProgressUpdated}
-			} else {
-				if s.opts.Verbose {
-					fmt.Printf("[DRY RUN] Would clone: %s\n", repoName)
-				}
-				s.reportProgress(repoName, ProgressCloned, "dry-run")
-				results <- syncResult{repoName: repoName, status: ProgressCloned}
-			}
-			continue
-		}
-
-		// Report progress: starting
-		s.reportProgress(repoName, ProgressInProgress, "")
-
-		// Sync the repository
-		if s.git.IsGitRepo(localPath) {
-			// Pull existing repo
-			status, err := s.pullRepo(ctx, repo, localPath)
-			if err != nil {
-				s.reportProgress(repoName, ProgressFailed, err.Error())
-				if s.opts.Verbose {
-					fmt.Printf("Failed to update %s: %v\n", repoName, err)
-				}
-				results <- syncResult{repoName: repoName, status: ProgressFailed, err: err}
-			} else {
-				s.reportProgress(repoName, status, "")
-				if s.opts.Verbose {
-					if status == ProgressUpToDate {
-						fmt.Printf("Up-to-date: %s\n", repoName)
-					} else {
-						fmt.Printf("Updated: %s\n", repoName)
-					}
-				}
-				results <- syncResult{repoName: repoName, status: status}
-			}
-		} else {
-			// Clone new repo
-			if err := s.cloneRepo(ctx, repo, localPath); err != nil {
-				s.reportProgress(repoName, ProgressFailed, err.Error())
-				if s.opts.Verbose {
-					fmt.Printf("Failed to clone %s: %v\n", repoName, err)
-				}
-				results <- syncResult{repoName: repoName, status: ProgressFailed, err: err}
-			} else {
-				s.reportProgress(repoName, ProgressCloned, "")
-				if s.opts.Verbose {
-					fmt.Printf("Cloned: %s\n", repoName)
-				}
-				results <- syncResult{repoName: repoName, status: ProgressCloned}
-			}
-		}
-	}
 }
 
 func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result *Result) {

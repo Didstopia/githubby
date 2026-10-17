@@ -40,16 +40,3 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
-      # Exclude legacy cmd/ directory from strict checks
-      - path: ^cmd/
-        linters:
-          - errcheck
-      # Exclude legacy ghapi/ directory from strict checks
-      - path: ^ghapi/
-        linters:
-          - errcheck
-          - staticcheck
-      # Exclude legacy util/ directory
-      - path: ^util/
-        linters:
-          - staticcheck
