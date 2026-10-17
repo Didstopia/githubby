@@ -13,34 +13,34 @@ func TestFilterReleases_ByCount(t *testing.T) {
 	releases := createTestReleases(5, now)
 
 	tests := []struct {
-		name         string
-		releases     []*gh.RepositoryRelease
-		filterCount  int64
-		expectedLen  int
+		name        string
+		releases    []*gh.RepositoryRelease
+		filterCount int64
+		expectedLen int
 	}{
 		{
-			name:         "keep 3 most recent, remove 2",
-			releases:     releases,
-			filterCount:  3,
-			expectedLen:  2,
+			name:        "keep 3 most recent, remove 2",
+			releases:    releases,
+			filterCount: 3,
+			expectedLen: 2,
 		},
 		{
-			name:         "keep all releases",
-			releases:     releases,
-			filterCount:  10,
-			expectedLen:  0,
+			name:        "keep all releases",
+			releases:    releases,
+			filterCount: 10,
+			expectedLen: 0,
 		},
 		{
-			name:         "keep 0 releases",
-			releases:     releases,
-			filterCount:  0,
-			expectedLen:  5,
+			name:        "keep 0 releases",
+			releases:    releases,
+			filterCount: 0,
+			expectedLen: 5,
 		},
 		{
-			name:         "keep 1 release",
-			releases:     releases,
-			filterCount:  1,
-			expectedLen:  4,
+			name:        "keep 1 release",
+			releases:    releases,
+			filterCount: 1,
+			expectedLen: 4,
 		},
 	}
 
@@ -73,11 +73,11 @@ func TestFilterReleases_ByDays(t *testing.T) {
 	// Note: filterReleases uses math.Ceil on hours/24 and checks daysSinceRelease > filterDays
 	// Using clear day boundaries (add 1h buffer to avoid edge cases from test execution timing)
 	releases := []*gh.RepositoryRelease{
-		createReleaseAt(1, now),                                        // ~0 days old
-		createReleaseAt(2, now.Add(-5*24*time.Hour-time.Hour)),         // 5+ days old
-		createReleaseAt(3, now.Add(-10*24*time.Hour-time.Hour)),        // 10+ days old
-		createReleaseAt(4, now.Add(-30*24*time.Hour)),                  // 30 days old
-		createReleaseAt(5, now.Add(-60*24*time.Hour)),                  // 60 days old
+		createReleaseAt(1, now),                                 // ~0 days old
+		createReleaseAt(2, now.Add(-5*24*time.Hour-time.Hour)),  // 5+ days old
+		createReleaseAt(3, now.Add(-10*24*time.Hour-time.Hour)), // 10+ days old
+		createReleaseAt(4, now.Add(-30*24*time.Hour)),           // 30 days old
+		createReleaseAt(5, now.Add(-60*24*time.Hour)),           // 60 days old
 	}
 
 	tests := []struct {
@@ -133,14 +133,14 @@ func TestFilterReleases_Combined(t *testing.T) {
 
 	// Create 10 releases, with varying ages
 	releases := []*gh.RepositoryRelease{
-		createReleaseAt(1, now),                        // 0 days old
-		createReleaseAt(2, now.Add(-1*24*time.Hour)),   // 1 day old
-		createReleaseAt(3, now.Add(-2*24*time.Hour)),   // 2 days old
-		createReleaseAt(4, now.Add(-3*24*time.Hour)),   // 3 days old
-		createReleaseAt(5, now.Add(-4*24*time.Hour)),   // 4 days old
-		createReleaseAt(6, now.Add(-10*24*time.Hour)),  // 10 days old
-		createReleaseAt(7, now.Add(-20*24*time.Hour)),  // 20 days old
-		createReleaseAt(8, now.Add(-30*24*time.Hour)),  // 30 days old
+		createReleaseAt(1, now),                       // 0 days old
+		createReleaseAt(2, now.Add(-1*24*time.Hour)),  // 1 day old
+		createReleaseAt(3, now.Add(-2*24*time.Hour)),  // 2 days old
+		createReleaseAt(4, now.Add(-3*24*time.Hour)),  // 3 days old
+		createReleaseAt(5, now.Add(-4*24*time.Hour)),  // 4 days old
+		createReleaseAt(6, now.Add(-10*24*time.Hour)), // 10 days old
+		createReleaseAt(7, now.Add(-20*24*time.Hour)), // 20 days old
+		createReleaseAt(8, now.Add(-30*24*time.Hour)), // 30 days old
 	}
 
 	tests := []struct {

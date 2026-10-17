@@ -1,44 +1,153 @@
 package cli
 
 import (
+	"context"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/Didstopia/githubby/internal/update"
 )
 
-func TestUpdateDisabled(t *testing.T) {
-	// Point the Docker marker at a path that doesn't exist
-	orig := dockerEnvPath
-	dockerEnvPath = filepath.Join(t.TempDir(), "missing")
-	defer func() { dockerEnvPath = orig }()
+func TestRootGlobalFlags(t *testing.T) {
+	testEnv(t)
+	res := runCLI(t, "", "version", "--verbose", "--dry-run", "--token", "abc")
+	require.NoError(t, res.err)
+	assert.True(t, GetVerbose())
+	assert.True(t, GetDryRun())
+	assert.Equal(t, "abc", GetToken())
+	assert.Equal(t, logrus.DebugLevel, GetLogger().GetLevel())
 
-	t.Run("enabled by default", func(t *testing.T) {
-		t.Setenv(noUpdateEnv, "")
-		assert.False(t, updateDisabled([]string{"sync"}))
+	res = runCLI(t, "", "version")
+	require.NoError(t, res.err)
+	assert.False(t, GetVerbose())
+	assert.False(t, GetDryRun())
+	assert.Equal(t, logrus.InfoLevel, GetLogger().GetLevel())
+}
+
+func TestRootCreatesDefaultConfigFile(t *testing.T) {
+	home := testEnv(t)
+	res := runCLI(t, "", "version")
+	require.NoError(t, res.err)
+	assert.FileExists(t, home+"/.githubby.yaml")
+}
+
+func TestConfigFileValuesFillFlags(t *testing.T) {
+	home := testEnv(t)
+	require.NoError(t, os.WriteFile(home+"/.githubby.yaml", []byte("verbose: true\n"), 0o600))
+	res := runCLI(t, "", "version")
+	require.NoError(t, res.err)
+	assert.True(t, GetVerbose(), "verbose from the config file applies when the flag is absent")
+}
+
+func TestGetTokenWithAuth(t *testing.T) {
+	testEnv(t)
+	token = "from-flag"
+	t.Cleanup(func() { token = "" })
+	got, err := GetTokenWithAuth(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "from-flag", got)
+
+	token = ""
+	t.Setenv("GITHUB_TOKEN", "from-env")
+	got, err = GetTokenWithAuth(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "from-env", got)
+
+	t.Setenv("GITHUB_TOKEN", "")
+	got, err = GetTokenWithAuth(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestExecute_RunsACommand(t *testing.T) {
+	testEnv(t)
+	withVersion(t, "dev")
+	origArgs := os.Args
+	t.Cleanup(func() { os.Args = origArgs })
+	os.Args = []string{"githubby", "version"}
+	resetFlags(rootCmd)
+	rootCmd.SetArgs([]string{"version"})
+
+	out, _ := captureOutput(t, Execute)
+	assert.Contains(t, out, "githubby dev")
+}
+
+func TestExecute_WithoutArgsStartsTheTUI(t *testing.T) {
+	testEnv(t)
+	origArgs, origInteractive := os.Args, isInteractive
+	t.Cleanup(func() { os.Args, isInteractive = origArgs, origInteractive })
+	os.Args = []string{"githubby"}
+	isInteractive = func() bool { return false }
+
+	out, _ := captureOutput(t, Execute)
+	assert.Contains(t, out, "Interactive mode is not available")
+}
+
+func TestStartBackgroundUpdateCheck(t *testing.T) {
+	origArgs := os.Args
+	t.Cleanup(func() { os.Args = origArgs })
+
+	t.Run("skipped for commands that must not nag", func(t *testing.T) {
+		withVersion(t, "1.0.0")
+		for _, cmd := range []string{"update", "version", "help", "--help", "-h"} {
+			os.Args = []string{"githubby", cmd}
+			_, open := <-startBackgroundUpdateCheck(context.Background())
+			assert.False(t, open, cmd)
+		}
 	})
-
-	t.Run("env var turns it off", func(t *testing.T) {
-		t.Setenv(noUpdateEnv, "1")
-		assert.True(t, updateDisabled([]string{"sync"}))
+	t.Run("skipped for dev builds", func(t *testing.T) {
+		withVersion(t, "dev")
+		os.Args = []string{"githubby", "sync"}
+		_, open := <-startBackgroundUpdateCheck(context.Background())
+		assert.False(t, open)
 	})
-
-	t.Run("env var set to 0 keeps it on", func(t *testing.T) {
-		t.Setenv(noUpdateEnv, "0")
-		assert.False(t, updateDisabled([]string{"sync"}))
+	t.Run("reports an available update", func(t *testing.T) {
+		withVersion(t, "1.0.0")
+		os.Args = []string{"githubby", "sync"}
+		fakeGitHub(t, releaseRoutes("2.0.0"))
+		res := <-startBackgroundUpdateCheck(context.Background())
+		require.NotNil(t, res)
+		assert.True(t, res.Available)
+		assert.Equal(t, "2.0.0", res.LatestVersion)
 	})
-
-	t.Run("flag turns it off", func(t *testing.T) {
-		t.Setenv(noUpdateEnv, "")
-		assert.True(t, updateDisabled([]string{"sync", "--no-update"}))
+	t.Run("a failed check yields nothing", func(t *testing.T) {
+		withVersion(t, "1.0.0")
+		os.Args = []string{"githubby", "sync"}
+		fakeGitHub(t, map[string]fakeRoute{
+			"GET /repos/Didstopia/githubby/releases": route(500, `{"message":"boom"}`),
+		})
+		res, open := <-startBackgroundUpdateCheck(context.Background())
+		assert.Nil(t, res)
+		assert.False(t, open)
 	})
+}
 
-	t.Run("inside Docker", func(t *testing.T) {
-		t.Setenv(noUpdateEnv, "")
-		marker := filepath.Join(t.TempDir(), ".dockerenv")
-		assert.NoError(t, os.WriteFile(marker, nil, 0600))
-		dockerEnvPath = marker
-		assert.True(t, updateDisabled([]string{"sync"}))
+func TestShowUpdateNotification(t *testing.T) {
+	t.Run("prints when an update exists", func(t *testing.T) {
+		ch := make(chan *update.Result, 1)
+		ch <- &update.Result{CurrentVersion: "1.0.0", LatestVersion: "2.0.0", Available: true}
+		_, errOut := captureOutput(t, func() { showUpdateNotification(ch) })
+		assert.Contains(t, errOut, "Update available: v1.0.0 -> v2.0.0")
+	})
+	t.Run("silent when nothing is available", func(t *testing.T) {
+		ch := make(chan *update.Result, 1)
+		ch <- &update.Result{Available: false}
+		_, errOut := captureOutput(t, func() { showUpdateNotification(ch) })
+		assert.Empty(t, errOut)
+	})
+	t.Run("does not wait for a slow check", func(t *testing.T) {
+		ch := make(chan *update.Result) // never answers
+		_, errOut := captureOutput(t, func() { showUpdateNotification(ch) })
+		assert.Empty(t, errOut)
+	})
+	t.Run("closed channel", func(t *testing.T) {
+		ch := make(chan *update.Result)
+		close(ch)
+		_, errOut := captureOutput(t, func() { showUpdateNotification(ch) })
+		assert.Empty(t, errOut)
 	})
 }

@@ -337,12 +337,12 @@ func TestProgressUpdateStatistics(t *testing.T) {
 
 		// Simulate multiple updates
 		statusCounts := map[string]int{
-			"cloned":    3,
-			"updated":   5,
+			"cloned":     3,
+			"updated":    5,
 			"up-to-date": 10,
-			"skipped":   2,
-			"failed":    1,
-			"archived":  1,
+			"skipped":    2,
+			"failed":     1,
+			"archived":   1,
 		}
 
 		for status, count := range statusCounts {
@@ -566,14 +566,14 @@ func TestETACalculationDuringInitialSync(t *testing.T) {
 
 	t.Run("ETA calculated after 1 clone completes", func(t *testing.T) {
 		screen := &SyncProgressScreen{
-			totalRepos:         10,
-			cloned:             1, // First clone completed
-			updated:            0,
-			upToDate:           0,
-			reposCompleted:     1,
-			lastETADoneCount:   0,
-			lastDisplayedETA:   0,
-			startTime:          time.Now().Add(-10 * time.Second), // Started 10 seconds ago
+			totalRepos:       10,
+			cloned:           1, // First clone completed
+			updated:          0,
+			upToDate:         0,
+			reposCompleted:   1,
+			lastETADoneCount: 0,
+			lastDisplayedETA: 0,
+			startTime:        time.Now().Add(-10 * time.Second), // Started 10 seconds ago
 		}
 
 		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
@@ -610,14 +610,14 @@ func TestETACalculationDuringInitialSync(t *testing.T) {
 
 	t.Run("ETA not calculated until 3 updates complete for incremental sync", func(t *testing.T) {
 		screen := &SyncProgressScreen{
-			totalRepos:         10,
-			cloned:             0, // No clones, incremental sync
-			updated:            2, // Only 2 updates so far
-			upToDate:           0,
-			reposCompleted:     2,
-			lastETADoneCount:   0,
-			lastDisplayedETA:   0,
-			startTime:          time.Now().Add(-2 * time.Second),
+			totalRepos:       10,
+			cloned:           0, // No clones, incremental sync
+			updated:          2, // Only 2 updates so far
+			upToDate:         0,
+			reposCompleted:   2,
+			lastETADoneCount: 0,
+			lastDisplayedETA: 0,
+			startTime:        time.Now().Add(-2 * time.Second),
 		}
 
 		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
@@ -650,14 +650,14 @@ func TestETACalculationDuringInitialSync(t *testing.T) {
 
 	t.Run("ETA calculated after 3 updates in incremental sync", func(t *testing.T) {
 		screen := &SyncProgressScreen{
-			totalRepos:         10,
-			cloned:             0, // No clones, incremental sync
-			updated:            3, // 3 updates completed
-			upToDate:           0,
-			reposCompleted:     3,
-			lastETADoneCount:   0,
-			lastDisplayedETA:   0,
-			startTime:          time.Now().Add(-6 * time.Second),
+			totalRepos:       10,
+			cloned:           0, // No clones, incremental sync
+			updated:          3, // 3 updates completed
+			upToDate:         0,
+			reposCompleted:   3,
+			lastETADoneCount: 0,
+			lastDisplayedETA: 0,
+			startTime:        time.Now().Add(-6 * time.Second),
 		}
 
 		done := screen.cloned + screen.updated + screen.upToDate + screen.skipped + screen.failed + screen.archived
