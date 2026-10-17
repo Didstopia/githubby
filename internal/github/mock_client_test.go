@@ -214,3 +214,65 @@ func TestMockClient_CallCount(t *testing.T) {
 		t.Errorf("expected 0 NonExistent calls, got %d", mock.CallCount("NonExistent"))
 	}
 }
+
+func TestMockClient_DefaultsAndOverrides(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockClient()
+
+	if repos, err := m.ListUserRepos(ctx, "u", nil); err != nil || repos != nil {
+		t.Errorf("default ListUserRepos = %v, %v", repos, err)
+	}
+	if repos, err := m.ListOrgRepos(ctx, "o", nil); err != nil || repos != nil {
+		t.Errorf("default ListOrgRepos = %v, %v", repos, err)
+	}
+	orgs, err := m.ListUserOrgs(ctx)
+	if err != nil || orgs != nil {
+		t.Errorf("default ListUserOrgs = %v, %v", orgs, err)
+	}
+	sha, err := m.GetBranchRef(ctx, "o", "r", "main")
+	if err != nil || sha != "mock-sha-12345" {
+		t.Errorf("default GetBranchRef = %q, %v", sha, err)
+	}
+	user, err := m.GetAuthenticatedUser(ctx)
+	if err != nil || user.GetLogin() != "mock-user" {
+		t.Errorf("default GetAuthenticatedUser = %v, %v", user, err)
+	}
+	gists, err := m.ListGists(ctx)
+	if err != nil || gists != nil {
+		t.Errorf("default ListGists = %v, %v", gists, err)
+	}
+	issues, pulls, err := m.GetIssuePRCounts(ctx, "o", "r")
+	if err != nil || issues != 0 || pulls != 0 {
+		t.Errorf("default GetIssuePRCounts = %d, %d, %v", issues, pulls, err)
+	}
+	if rl, err := m.GetRateLimit(ctx); err != nil || rl != nil {
+		t.Errorf("default GetRateLimit = %v, %v", rl, err)
+	}
+
+	m.ListUserOrgsFunc = func(context.Context) ([]*gh.Organization, error) {
+		return []*gh.Organization{{Login: gh.Ptr("o")}}, nil
+	}
+	m.GetBranchRefFunc = func(context.Context, string, string, string) (string, error) { return "", errors.New("x") }
+	m.GetAuthenticatedUserFunc = func(context.Context) (*gh.User, error) { return nil, errors.New("x") }
+	m.ListGistsFunc = func(context.Context) ([]*gh.Gist, error) { return []*gh.Gist{{}}, nil }
+	m.GetIssuePRCountsFunc = func(context.Context, string, string) (int, int, error) { return 3, 4, nil }
+
+	if orgs, _ := m.ListUserOrgs(ctx); len(orgs) != 1 {
+		t.Error("ListUserOrgsFunc not used")
+	}
+	if _, err := m.GetBranchRef(ctx, "o", "r", "b"); err == nil {
+		t.Error("GetBranchRefFunc not used")
+	}
+	if _, err := m.GetAuthenticatedUser(ctx); err == nil {
+		t.Error("GetAuthenticatedUserFunc not used")
+	}
+	if gists, _ := m.ListGists(ctx); len(gists) != 1 {
+		t.Error("ListGistsFunc not used")
+	}
+	if i, p, _ := m.GetIssuePRCounts(ctx, "o", "r"); i != 3 || p != 4 {
+		t.Error("GetIssuePRCountsFunc not used")
+	}
+	if m.CallCount("ListUserOrgs") != 2 {
+		t.Errorf("calls recorded = %d", m.CallCount("ListUserOrgs"))
+	}
+}
