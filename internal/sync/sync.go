@@ -446,8 +446,12 @@ func (s *Syncer) syncWiki(ctx context.Context, repo *gh.Repository, result *Resu
 			func() error { return s.git.FetchAll(ctx, localPath) },
 			nil, isTransientGitError)
 	} else {
+		// Quiet, so a never-created wiki doesn't print git's "not found"; real errors
+		// still carry git's output in err
+		quiet := *s.git
+		quiet.Quiet = true
 		err = withGitRetry(ctx, gitRetryConfig(),
-			func() error { return s.git.Clone(ctx, url, localPath) },
+			func() error { return quiet.Clone(ctx, url, localPath) },
 			func() error { return os.RemoveAll(localPath) },
 			isTransientGitError)
 	}

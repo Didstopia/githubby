@@ -69,6 +69,32 @@ func TestSync_MissingWikiIsSkippedQuietly(t *testing.T) {
 	assert.Empty(t, result.Warnings)
 }
 
+func TestSync_MissingWikiPrintsNothingInCLIMode(t *testing.T) {
+	q, err := git.NewQuiet()
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	// The CLI uses a non-quiet git that streams git's stderr to the terminal
+	g := &git.Git{GitPath: q.GitPath}
+	repo := repoWithWiki(t, false)
+
+	stderr, err := os.CreateTemp(t.TempDir(), "stderr")
+	require.NoError(t, err)
+	orig := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() { os.Stderr = orig })
+
+	syncer := New(github.NewMockClient(), g, &Options{Target: t.TempDir(), Wikis: true})
+	result, err := syncer.SyncRepoWithData(context.Background(), repo)
+	os.Stderr = orig
+	require.NoError(t, err)
+	assert.Empty(t, result.Failed)
+
+	out, err := os.ReadFile(stderr.Name())
+	require.NoError(t, err)
+	assert.NotContains(t, string(out), ".wiki.git")
+}
+
 func TestSync_WikiOffOrNoWikiFlag(t *testing.T) {
 	g, err := git.NewQuiet()
 	if err != nil {
