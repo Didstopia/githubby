@@ -410,6 +410,20 @@ func TestExportUser_MissingScopeIsWarning(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(OwnerDir(target, "Dids"), "projects-v2.json"))
 }
 
+func TestExportUser_MissingScopeWarningIsShort(t *testing.T) {
+	e, _, _ := newTestExporter(t)
+	httpmock.RegisterResponder("POST", "https://api.github.com/graphql", graphqlResponder(t, map[string][]string{
+		"user(login": {`{"data":{"user":null},"errors":[` +
+			`{"type":"INSUFFICIENT_SCOPES","message":"The 'id' field requires read:project"},` +
+			`{"type":"INSUFFICIENT_SCOPES","message":"The 'title' field requires read:project"}]}`},
+	}))
+
+	rep := NewReport()
+	e.ExportUser(context.Background(), "Dids", rep)
+	require.Len(t, rep.Warnings, 1)
+	assert.True(t, strings.HasSuffix(rep.Warnings[0], "needs read:project (INSUFFICIENT_SCOPES)"), rep.Warnings[0])
+}
+
 func TestExportUser_GraphQLRateLimitWaits(t *testing.T) {
 	e, target, waits := newTestExporter(t)
 	httpmock.RegisterResponder("POST", "https://api.github.com/graphql", graphqlResponder(t, map[string][]string{

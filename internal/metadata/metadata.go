@@ -111,7 +111,7 @@ func (e *Exporter) writeParts(ctx context.Context, name, dir string, parts []par
 
 		if isAccessError(err) {
 			rep.Warnings = append(rep.Warnings,
-				fmt.Sprintf("%s: %s skipped, needs %s (%v)", name, p.file, p.scope, err))
+				fmt.Sprintf("%s: %s skipped, needs %s (%s)", name, p.file, p.scope, accessDetail(err)))
 			continue
 		}
 		rep.fail(name, fmt.Errorf("%s: %w", p.file, err))
@@ -129,6 +129,18 @@ func isAccessError(err error) bool {
 		return gqlErr.HasType("INSUFFICIENT_SCOPES", "FORBIDDEN", "NOT_FOUND")
 	}
 	return false
+}
+
+// accessDetail keeps access warnings short; GraphQL repeats the same error once per field
+func accessDetail(err error) string {
+	var gqlErr *github.GraphQLError
+	if errors.As(err, &gqlErr) && len(gqlErr.Errors) > 0 {
+		if gqlErr.Errors[0].Type != "" {
+			return gqlErr.Errors[0].Type
+		}
+		return gqlErr.Errors[0].Message
+	}
+	return err.Error()
 }
 
 // statusOf returns the HTTP status of a go-github error, or 0
