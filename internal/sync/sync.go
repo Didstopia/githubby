@@ -72,6 +72,9 @@ type Options struct {
 
 	// Submodules checks out submodules (recursively) after each clone or fetch
 	Submodules bool
+
+	// Wikis clones or fetches each repo's wiki into <owner>/<repo>.wiki
+	Wikis bool
 }
 
 // Result represents the result of a sync operation
@@ -96,6 +99,9 @@ type Result struct {
 
 	// Warnings are non-fatal problems (e.g. a submodule that failed to check out)
 	Warnings []string
+
+	// Wikis that were cloned or fetched
+	Wikis []string
 }
 
 // NewResult creates a new sync result
@@ -108,6 +114,7 @@ func NewResult() *Result {
 		Failed:   make(map[string]error),
 		Archived: make([]string, 0),
 		Warnings: make([]string, 0),
+		Wikis:    make([]string, 0),
 	}
 }
 
@@ -322,6 +329,57 @@ func (s *Syncer) syncSingleRepo(ctx context.Context, repo *gh.Repository, result
 			}
 		}
 	}
+	// The wiki is its own git repo, so it syncs even if the main repo failed
+	if s.opts.Wikis && repo.GetHasWiki() {
+		s.syncWiki(ctx, repo, result)
+	}
+}
+
+// WikiURL returns the clone URL of a repo's wiki
+func WikiURL(repo *gh.Repository) string {
+	return strings.TrimSuffix(repo.GetCloneURL(), ".git") + ".wiki.git"
+}
+
+// WikiPath returns where a repo's wiki lives under target
+func WikiPath(target string, repo *gh.Repository) string {
+	return filepath.Join(target, repo.GetOwner().GetLogin(), repo.GetName()+".wiki")
+}
+
+// syncWiki clones or fetches a repo's wiki. GitHub reports has_wiki even when the
+// wiki was never created, so a missing wiki is skipped quietly.
+func (s *Syncer) syncWiki(ctx context.Context, repo *gh.Repository, result *Result) {
+	name := repo.GetFullName() + ".wiki"
+	localPath := WikiPath(s.opts.Target, repo)
+	url := WikiURL(repo)
+
+	var err error
+	if s.git.IsGitRepo(localPath) {
+		err = withGitRetry(ctx, DefaultGitRetryConfig(),
+			func() error { return s.git.FetchAll(ctx, localPath) },
+			nil, isTransientGitError)
+	} else {
+		err = withGitRetry(ctx, DefaultGitRetryConfig(),
+			func() error { return s.git.Clone(ctx, url, localPath) },
+			func() error { return os.RemoveAll(localPath) },
+			isTransientGitError)
+	}
+
+	switch {
+	case err == nil:
+		result.Wikis = append(result.Wikis, name)
+	case IsRepoNotFound(err):
+		if s.opts.Verbose {
+			fmt.Printf("No wiki for %s\n", repo.GetFullName())
+		}
+	default:
+		result.Failed[name] = err
+	}
+}
+
+// IsRepoNotFound reports whether a git error means the remote repo does not exist
+func IsRepoNotFound(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist")
 }
 
 // afterSync runs the optional backup steps for a repo whose git data synced fine.
@@ -342,7 +400,10 @@ func (s *Syncer) detectArchived(remoteRepos []*gh.Repository) []string {
 	for _, repo := range remoteRepos {
 		// Use owner/repo path format
 		path := filepath.Join(repo.GetOwner().GetLogin(), repo.GetName())
-		remoteSet[path] = true
+		remoteSet[filepath.ToSlash(path)] = true
+		if repo.GetHasWiki() {
+			remoteSet[filepath.ToSlash(path)+".wiki"] = true
+		}
 	}
 
 	// Scan local target directory for git repos

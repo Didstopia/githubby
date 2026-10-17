@@ -231,6 +231,7 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 		DryRun:         dryRun,
 		Verbose:        verbose,
 		Submodules:     true,
+		Wikis:          true,
 	}
 
 	// Profiles that picked specific repos sync only those
@@ -296,6 +297,7 @@ func executeSyncWithFlags(ctx context.Context) error {
 		DryRun:         dryRun,
 		Verbose:        verbose,
 		Submodules:     true,
+		Wikis:          true,
 	}
 
 	// Create syncer
@@ -356,6 +358,13 @@ func printSyncSummary(result *sync.Result) {
 		fmt.Printf("\nUpdated (%d):\n", len(result.Updated))
 		for _, repo := range result.Updated {
 			fmt.Printf("  - %s\n", repo)
+		}
+	}
+
+	if len(result.Wikis) > 0 {
+		fmt.Printf("\nWikis (%d):\n", len(result.Wikis))
+		for _, wiki := range result.Wikis {
+			fmt.Printf("  - %s\n", wiki)
 		}
 	}
 

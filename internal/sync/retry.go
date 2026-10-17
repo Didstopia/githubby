@@ -106,6 +106,7 @@ func isTransientGitError(err error) bool {
 var permanentGitErrors = []string{
 	"authentication failed",
 	"not found",
+	"does not exist",
 	"permission denied",
 	"could not read username",
 	"no space left",
