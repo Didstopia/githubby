@@ -29,8 +29,10 @@ type PullExport struct {
 
 // Files written per repo; verify reads the issue and pull counts back
 const (
-	IssuesFile = "issues.json"
-	PullsFile  = "pulls.json"
+	IssuesFile   = "issues.json"
+	PullsFile    = "pulls.json"
+	ReleasesFile = "releases.json"
+	RulesetsFile = "rulesets.json"
 )
 
 // ExportRepo writes all metadata of one repo into <target>/<owner>/<repo>.meta
@@ -75,7 +77,7 @@ func (e *Exporter) ExportRepo(ctx context.Context, repo *gh.Repository, rep *Rep
 		{PullsFile, "repo", func(ctx context.Context) (any, error) {
 			return e.pulls(ctx, owner, name, issueComments)
 		}},
-		{"releases.json", "repo", func(ctx context.Context) (any, error) {
+		{ReleasesFile, "repo", func(ctx context.Context) (any, error) {
 			return e.releases(ctx, owner, name, dir)
 		}},
 		{"labels.json", "repo", func(ctx context.Context) (any, error) {
@@ -134,6 +136,14 @@ func (e *Exporter) ExportRepo(ctx context.Context, repo *gh.Repository, rep *Rep
 					return nil, resp, err
 				}
 				return s.Secrets, resp, err
+			})
+		}},
+		{RulesetsFile, "repo and admin access to the repo", func(ctx context.Context) (any, error) {
+			// Org rulesets are exported with the org
+			return e.rulesets(ctx, func(o gh.ListOptions) ([]*gh.RepositoryRuleset, *gh.Response, error) {
+				return e.gh.Repositories.GetAllRulesets(ctx, owner, name, &gh.RepositoryListRulesetsOptions{IncludesParents: gh.Ptr(false), ListOptions: o})
+			}, func(id int64) (*gh.RepositoryRuleset, *gh.Response, error) {
+				return e.gh.Repositories.GetRuleset(ctx, owner, name, id, false)
 			})
 		}},
 		{"environments.json", "repo and admin access to the repo", func(ctx context.Context) (any, error) {
@@ -329,6 +339,32 @@ func (e *Exporter) branchProtection(ctx context.Context, owner, name string) (ma
 			return nil, fmt.Errorf("branch %s: %w", b.GetName(), err)
 		}
 		out[b.GetName()] = p
+	}
+	return out, nil
+}
+
+// rulesets lists rulesets, then fetches each one, since the list leaves out the rules
+func (e *Exporter) rulesets(ctx context.Context,
+	list func(o gh.ListOptions) ([]*gh.RepositoryRuleset, *gh.Response, error),
+	get func(id int64) (*gh.RepositoryRuleset, *gh.Response, error),
+) ([]*gh.RepositoryRuleset, error) {
+	summaries, err := listAll(ctx, e, list)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]*gh.RepositoryRuleset, 0, len(summaries))
+	for _, r := range summaries {
+		var full *gh.RepositoryRuleset
+		err := e.call(ctx, func() error {
+			var err error
+			full, _, err = get(r.GetID())
+			return err
+		})
+		if err != nil {
+			return nil, fmt.Errorf("ruleset %s: %w", r.Name, err)
+		}
+		out = append(out, full)
 	}
 	return out, nil
 }

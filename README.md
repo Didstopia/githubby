@@ -202,9 +202,9 @@ backup/
 │   ├── releases.json            # plus releases/<tag>/<asset> files
 │   ├── discussions.json         # with comments and replies, if discussions are on
 │   ├── repo.json, labels.json, milestones.json, topics.json, branch-protection.json,
-│   ├── hooks.json, collaborators.json, deploy-keys.json, environments.json,
+│   ├── hooks.json, collaborators.json, deploy-keys.json, environments.json, rulesets.json,
 │   └── actions-variables.json, actions-secrets.json (names only, GitHub never returns values)
-├── <org>.meta/                  # org.json, members, teams, Actions variables, secret names, projects
+├── <org>.meta/                  # org.json, members, teams, Actions variables, secret names, projects, rulesets
 ├── <you>.meta/projects-v2.json  # your own projects
 ├── <you>/gists/<id>/            # --gists
 └── verify-report.json           # written by githubby verify
@@ -218,8 +218,8 @@ export run independently: a failure in one does not stop the other, both show up
 in the exit code.
 
 Token scopes for a full backup: `repo`, `read:org`, `gist`, `read:project`, `admin:org`.
-`githubby login` asks for all of these. `admin:org` is only needed for org secrets, variables and
-webhooks; it is read here, never written.
+`githubby login` asks for all of these. `admin:org` is only needed for org secrets, variables,
+rulesets and webhooks; it is read here, never written.
 
 #### Checking a Backup
 

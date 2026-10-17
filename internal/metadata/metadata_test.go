@@ -104,6 +104,15 @@ func registerRepo() {
 	httpmock.RegisterResponder("GET", api+"/actions/secrets", json200(map[string]any{
 		"total_count": 1, "secrets": []map[string]any{{"name": "DEPLOY_KEY"}},
 	}))
+	httpmock.RegisterResponder("GET", api+"/rulesets", func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("includes_parents") != "false" {
+			return httpmock.NewStringResponse(400, "org rulesets belong to the org export"), nil
+		}
+		return httpmock.NewJsonResponse(200, []map[string]any{{"id": 42, "name": "main", "enforcement": "active"}})
+	})
+	httpmock.RegisterResponder("GET", api+"/rulesets/42", json200(map[string]any{
+		"id": 42, "name": "main", "enforcement": "active", "rules": []map[string]any{{"type": "deletion"}},
+	}))
 	httpmock.RegisterResponder("GET", api+"/environments", json200(map[string]any{
 		"total_count": 1, "environments": []map[string]any{{"name": "prod"}},
 	}))
@@ -178,6 +187,8 @@ func TestExportRepo(t *testing.T) {
 	var variables []map[string]any
 	readJSON(t, filepath.Join(dir, "actions-variables.json"), &variables)
 	assert.Equal(t, "eu", variables[0]["value"])
+
+	assert.Equal(t, [][]string{{"deletion"}}, rulesetRules(t, filepath.Join(dir, RulesetsFile)), "full detail per ruleset")
 
 	for _, f := range []string{"repo.json", "releases.json", "labels.json", "milestones.json", "deploy-keys.json", "environments.json"} {
 		assert.FileExists(t, filepath.Join(dir, f))
@@ -323,6 +334,30 @@ func registerOrg(org string) {
 	httpmock.RegisterResponder("GET", base+"/actions/secrets", json200(map[string]any{"secrets": []map[string]any{{"name": "NPM_TOKEN"}}}))
 	httpmock.RegisterResponder("GET", base+"/members", json200([]map[string]any{{"login": "dids"}}))
 	httpmock.RegisterResponder("GET", base+"/teams", json200([]map[string]any{{"slug": "core"}}))
+	httpmock.RegisterResponder("GET", base+"/rulesets", json200([]map[string]any{{"id": 7, "name": "all", "enforcement": "active"}}))
+	httpmock.RegisterResponder("GET", base+"/rulesets/7", json200(map[string]any{
+		"id": 7, "name": "all", "enforcement": "active", "rules": []map[string]any{{"type": "non_fast_forward"}},
+	}))
+}
+
+// rulesetRules reads a rulesets.json and returns the rule types of each ruleset
+func rulesetRules(t *testing.T, path string) [][]string {
+	t.Helper()
+	var sets []struct {
+		Rules []struct {
+			Type string `json:"type"`
+		} `json:"rules"`
+	}
+	readJSON(t, path, &sets)
+	out := [][]string{}
+	for _, s := range sets {
+		types := []string{}
+		for _, r := range s.Rules {
+			types = append(types, r.Type)
+		}
+		out = append(out, types)
+	}
+	return out
 }
 
 func TestExportOrg(t *testing.T) {
@@ -358,6 +393,7 @@ func TestExportOrg(t *testing.T) {
 	for _, f := range []string{"org.json", "actions-secrets.json", "members.json", "teams.json"} {
 		assert.FileExists(t, filepath.Join(dir, f))
 	}
+	assert.Equal(t, [][]string{{"non_fast_forward"}}, rulesetRules(t, filepath.Join(dir, RulesetsFile)))
 }
 
 func TestExportUser_MissingScopeIsWarning(t *testing.T) {

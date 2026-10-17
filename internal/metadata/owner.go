@@ -7,7 +7,7 @@ import (
 )
 
 // ExportOrg writes an org's settings, Actions variables, secret names, members,
-// teams and projects into <target>/<org>.meta
+// teams, projects and rulesets into <target>/<org>.meta
 func (e *Exporter) ExportOrg(ctx context.Context, org string, rep *Report) {
 	name := "org " + org
 	parts := []part{
@@ -51,6 +51,13 @@ func (e *Exporter) ExportOrg(ctx context.Context, org string, rep *Report) {
 		}},
 		{"projects-v2.json", "read:project", func(ctx context.Context) (any, error) {
 			return e.projects(ctx, "organization", org)
+		}},
+		{RulesetsFile, "admin:org", func(ctx context.Context) (any, error) {
+			return e.rulesets(ctx, func(o gh.ListOptions) ([]*gh.RepositoryRuleset, *gh.Response, error) {
+				return e.gh.Organizations.GetAllRepositoryRulesets(ctx, org, &o)
+			}, func(id int64) (*gh.RepositoryRuleset, *gh.Response, error) {
+				return e.gh.Organizations.GetRepositoryRuleset(ctx, org, id)
+			})
 		}},
 	}
 
