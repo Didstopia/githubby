@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -25,6 +26,7 @@ import (
 // SyncProgressScreen shows sync operation progress for a profile or multiple profiles
 type SyncProgressScreen struct {
 	ctx    context.Context
+	cancel context.CancelFunc // stops the background sync when the screen closes
 	app    *tui.App
 	styles *tui.Styles
 	keys   tui.KeyMap
@@ -101,8 +103,11 @@ func NewSyncProgress(ctx context.Context, app *tui.App) *SyncProgressScreen {
 	s.Spinner = spinner.Dot
 	s.Style = tui.GetStyles().Spinner
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	return &SyncProgressScreen{
 		ctx:         ctx,
+		cancel:      cancel,
 		app:         app,
 		styles:      tui.GetStyles(),
 		keys:        tui.GetKeyMap(),
@@ -218,6 +223,7 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle Ctrl+C
 		if msg.Type == tea.KeyCtrlC {
 			if s.exitPending && s.exitKey == "ctrl+c" {
+				s.cancel()
 				return s, tui.PopScreenCmd()
 			}
 			s.exitPending = true
@@ -229,6 +235,7 @@ func (s *SyncProgressScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, s.keys.Back), key.Matches(msg, s.keys.Select):
 			s.exitPending = false
 			if s.complete {
+				s.cancel()
 				return s, tea.Batch(
 					tui.PopScreenCmd(),
 					tui.RefreshDashboardCmd(),
@@ -561,25 +568,33 @@ func (s *SyncProgressScreen) startSync() tea.Cmd {
 	)
 }
 
+// send delivers a progress update, or drops it once the screen has closed
+func (s *SyncProgressScreen) send(update profileSyncProgressUpdate) {
+	select {
+	case s.syncProgressChan <- update:
+	case <-s.ctx.Done():
+	}
+}
+
 // runSyncInBackground performs the actual sync operation
 func (s *SyncProgressScreen) runSyncInBackground() {
 	defer close(s.syncProgressChan)
 
 	if len(s.profiles) == 0 {
-		s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("no profiles")}
+		s.send(profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("no profiles")})
 		return
 	}
 
 	client := s.app.GitHubClient()
 	if client == nil {
-		s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("not authenticated")}
+		s.send(profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("not authenticated")})
 		return
 	}
 
 	// Use quiet git mode with authentication token
 	gitOps, err := git.NewQuietWithToken(s.app.Token())
 	if err != nil {
-		s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("git not available: %w", err)}
+		s.send(profileSyncProgressUpdate{status: "complete", err: fmt.Errorf("git not available: %w", err)})
 		return
 	}
 
@@ -598,17 +613,17 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 	var allRepos []repoToSync
 
 	// Send initial collecting status
-	s.syncProgressChan <- profileSyncProgressUpdate{
+	s.send(profileSyncProgressUpdate{
 		status:  "collecting",
 		current: 0,
 		total:   0,
-	}
+	})
 
 	for _, profile := range s.profiles {
 		// Check for context cancellation before processing each profile
 		select {
 		case <-s.ctx.Done():
-			s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()}
+			s.send(profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()})
 			return
 		default:
 		}
@@ -632,25 +647,25 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 			if err != nil {
 				// Check if it's a context cancellation
 				if s.ctx.Err() != nil {
-					s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()}
+					s.send(profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()})
 					return
 				}
 				// Check for auth errors - abort immediately, don't continue with other profiles
 				if gherrors.IsUnauthorized(err) || gherrors.IsForbidden(err) {
-					s.syncProgressChan <- profileSyncProgressUpdate{
+					s.send(profileSyncProgressUpdate{
 						status: "complete",
 						err:    fmt.Errorf("authentication failed: %w", err),
-					}
+					})
 					return
 				}
 				// Send error as a failed repo
-				s.syncProgressChan <- profileSyncProgressUpdate{
+				s.send(profileSyncProgressUpdate{
 					repoName: fmt.Sprintf("%s/%s", profile.Type, profile.Source),
 					status:   "failed",
 					current:  len(allRepos),
 					total:    0,
 					err:      err,
-				}
+				})
 				failed++
 				continue
 			}
@@ -666,18 +681,18 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 				})
 			}
 			// Send collecting progress update after each profile's repos are fetched
-			s.syncProgressChan <- profileSyncProgressUpdate{
+			s.send(profileSyncProgressUpdate{
 				status:  "collecting",
 				current: len(allRepos),
 				total:   0,
-			}
+			})
 		} else {
 			// Use specific repos from profile - fetch repo data upfront
 			for _, repoFullName := range profile.SelectedRepos {
 				// Check for context cancellation periodically
 				select {
 				case <-s.ctx.Done():
-					s.syncProgressChan <- profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()}
+					s.send(profileSyncProgressUpdate{status: "complete", err: s.ctx.Err()})
 					return
 				default:
 				}
@@ -690,10 +705,10 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 					if err != nil {
 						// Check for auth errors - abort immediately
 						if gherrors.IsUnauthorized(err) || gherrors.IsForbidden(err) {
-							s.syncProgressChan <- profileSyncProgressUpdate{
+							s.send(profileSyncProgressUpdate{
 								status: "complete",
 								err:    fmt.Errorf("authentication failed: %w", err),
-							}
+							})
 							return
 						}
 						// If we can't fetch repo data, still add it but without the optimization data
@@ -716,11 +731,11 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 					}
 					// Send collecting progress update periodically (every 10 repos)
 					if len(allRepos)%10 == 0 {
-						s.syncProgressChan <- profileSyncProgressUpdate{
+						s.send(profileSyncProgressUpdate{
 							status:  "collecting",
 							current: len(allRepos),
 							total:   0,
-						}
+						})
 					}
 				}
 			}
@@ -731,11 +746,11 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 
 	// Send final collecting update with total count before starting sync
 	if total > 0 {
-		s.syncProgressChan <- profileSyncProgressUpdate{
+		s.send(profileSyncProgressUpdate{
 			status:  "collecting",
 			current: total,
 			total:   total,
-		}
+		})
 	}
 
 	// Parallel sync with worker pool (4 concurrent workers)
@@ -750,7 +765,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 	}, len(allRepos))
 
 	// Track completed count for progress
-	var completedCount int32
+	var completedCount atomic.Int32
 
 	// Start workers
 	for w := 0; w < numWorkers; w++ {
@@ -760,12 +775,12 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 				repoName := fmt.Sprintf("%s/%s", r.owner, r.repo)
 
 				// Send progress update before starting this repo
-				s.syncProgressChan <- profileSyncProgressUpdate{
+				s.send(profileSyncProgressUpdate{
 					repoName: repoName,
 					status:   "syncing",
-					current:  int(completedCount) + 1,
+					current:  int(completedCount.Load()) + 1,
 					total:    total,
-				}
+				})
 
 				opts := &sync.Options{
 					Target:               r.profile.TargetDir,
@@ -835,7 +850,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 	// Collect results
 	for i := 0; i < len(allRepos); i++ {
 		res := <-results
-		completedCount++
+		done := completedCount.Add(1)
 		r := allRepos[res.idx]
 		repoName := fmt.Sprintf("%s/%s", r.owner, r.repo)
 
@@ -856,13 +871,18 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 		}
 
 		// Send completion update
-		s.syncProgressChan <- profileSyncProgressUpdate{
+		s.send(profileSyncProgressUpdate{
 			repoName: repoName,
 			status:   res.status,
-			current:  int(completedCount),
+			current:  int(done),
 			total:    total,
 			err:      res.err,
-		}
+		})
+	}
+
+	// Cancelled: don't record a sync that didn't finish
+	if s.ctx.Err() != nil {
+		return
 	}
 
 	// Update profile last sync times
@@ -880,7 +900,7 @@ func (s *SyncProgressScreen) runSyncInBackground() {
 
 	// Send completion through the same channel to preserve message ordering
 	// (avoids race condition where done message could be received before all progress messages)
-	s.syncProgressChan <- profileSyncProgressUpdate{status: "complete"}
+	s.send(profileSyncProgressUpdate{status: "complete"})
 }
 
 // waitForSyncProgress returns a command that waits for the next progress update
