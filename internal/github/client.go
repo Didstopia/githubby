@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	gh "github.com/google/go-github/v86/github"
-	"golang.org/x/oauth2"
 
 	gherrors "github.com/Didstopia/githubby/internal/errors"
 )
@@ -20,15 +19,7 @@ type client struct {
 
 // NewClient creates a new GitHub client with the provided token
 func NewClient(token string) Client {
-	ctx := context.Background()
-	ts := oauth2.StaticTokenSource(
-		&oauth2.Token{AccessToken: token},
-	)
-	tc := oauth2.NewClient(ctx, ts)
-
-	return &client{
-		ghClient: gh.NewClient(tc),
-	}
+	return &client{ghClient: NewRESTClient(token)}
 }
 
 // GetReleases returns all releases for a repository using iterative pagination

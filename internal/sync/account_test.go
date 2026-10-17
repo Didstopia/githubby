@@ -36,12 +36,15 @@ func accountMock() *github.MockClient {
 	return m
 }
 
-func TestListAccountRepos(t *testing.T) {
+func TestListAccount(t *testing.T) {
 	m := accountMock()
 	syncer := New(m, &git.Git{}, &Options{IncludePrivate: true})
 
-	repos, failed, err := syncer.ListAccountRepos(context.Background(), "")
+	account, err := syncer.ListAccount(context.Background(), "")
 	require.NoError(t, err)
+	repos, failed := account.Repos, account.Failed
+	assert.Equal(t, "dids", account.Login)
+	assert.Equal(t, []string{"Didstopia", "Broken"}, account.Orgs)
 
 	var names []string
 	for _, r := range repos {
@@ -60,21 +63,21 @@ func TestListAccountRepos(t *testing.T) {
 	}
 }
 
-func TestListAccountRepos_ExplicitUserSkipsLookup(t *testing.T) {
+func TestListAccount_ExplicitUserSkipsLookup(t *testing.T) {
 	m := accountMock()
 	syncer := New(m, &git.Git{}, &Options{})
 
-	repos, _, err := syncer.ListAccountRepos(context.Background(), "someone")
+	account, err := syncer.ListAccount(context.Background(), "someone")
 	require.NoError(t, err)
-	assert.Equal(t, "someone/mine", repos[0].GetFullName())
+	assert.Equal(t, "someone/mine", account.Repos[0].GetFullName())
 	assert.Equal(t, 0, m.CallCount("GetAuthenticatedUser"))
 }
 
-func TestListAccountRepos_Errors(t *testing.T) {
+func TestListAccount_Errors(t *testing.T) {
 	t.Run("user lookup fails", func(t *testing.T) {
 		m := accountMock()
 		m.GetAuthenticatedUserFunc = func(ctx context.Context) (*gh.User, error) { return nil, errors.New("401") }
-		_, _, err := New(m, &git.Git{}, &Options{}).ListAccountRepos(context.Background(), "")
+		_, err := New(m, &git.Git{}, &Options{}).ListAccount(context.Background(), "")
 		assert.ErrorContains(t, err, "authenticated user")
 	})
 
@@ -83,14 +86,14 @@ func TestListAccountRepos_Errors(t *testing.T) {
 		m.ListUserReposFunc = func(ctx context.Context, u string, o *github.ListOptions) ([]*gh.Repository, error) {
 			return nil, errors.New("down")
 		}
-		_, _, err := New(m, &git.Git{}, &Options{}).ListAccountRepos(context.Background(), "x")
+		_, err := New(m, &git.Git{}, &Options{}).ListAccount(context.Background(), "x")
 		assert.ErrorContains(t, err, "user repos")
 	})
 
 	t.Run("org list fails", func(t *testing.T) {
 		m := accountMock()
 		m.ListUserOrgsFunc = func(ctx context.Context) ([]*gh.Organization, error) { return nil, errors.New("down") }
-		_, _, err := New(m, &git.Git{}, &Options{}).ListAccountRepos(context.Background(), "x")
+		_, err := New(m, &git.Git{}, &Options{}).ListAccount(context.Background(), "x")
 		assert.ErrorContains(t, err, "orgs")
 	})
 }

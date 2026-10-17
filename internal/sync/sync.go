@@ -173,14 +173,26 @@ func (s *Syncer) SyncOrgRepos(ctx context.Context, org string) (*Result, error) 
 	return s.syncRepos(ctx, repos)
 }
 
-// ListAccountRepos returns the repos of a user plus every org the token's account
+// Account is everything one token's account owns: its own repos plus its orgs' repos
+type Account struct {
+	// Login is the user whose repos were listed
+	Login string
+	// Orgs are the orgs the token's account belongs to
+	Orgs []string
+	// Repos of the user and of every org that could be listed
+	Repos []*gh.Repository
+	// Failed holds orgs whose repos could not be listed, keyed by org name
+	Failed map[string]error
+}
+
+// ListAccount returns the repos of a user plus every org the token's account
 // belongs to. An empty username means the token's own account. An org whose repos
-// can't be listed lands in failed (keyed by org name); the rest still come back.
-func (s *Syncer) ListAccountRepos(ctx context.Context, username string) ([]*gh.Repository, map[string]error, error) {
+// can't be listed lands in Failed; the rest still come back.
+func (s *Syncer) ListAccount(ctx context.Context, username string) (*Account, error) {
 	if username == "" {
 		user, err := s.ghClient.GetAuthenticatedUser(ctx)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get authenticated user: %w", err)
+			return nil, fmt.Errorf("failed to get authenticated user: %w", err)
 		}
 		username = user.GetLogin()
 	}
@@ -189,24 +201,25 @@ func (s *Syncer) ListAccountRepos(ctx context.Context, username string) ([]*gh.R
 
 	repos, err := s.ghClient.ListUserRepos(ctx, username, listOpts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list user repos: %w", err)
+		return nil, fmt.Errorf("failed to list user repos: %w", err)
 	}
 
 	orgs, err := s.ghClient.ListUserOrgs(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list orgs: %w", err)
+		return nil, fmt.Errorf("failed to list orgs: %w", err)
 	}
 
+	account := &Account{Login: username, Failed: make(map[string]error)}
 	seen := make(map[string]bool)
 	for _, repo := range repos {
 		seen[repo.GetFullName()] = true
 	}
 
-	failed := make(map[string]error)
 	for _, org := range orgs {
+		account.Orgs = append(account.Orgs, org.GetLogin())
 		orgRepos, err := s.ghClient.ListOrgRepos(ctx, org.GetLogin(), listOpts)
 		if err != nil {
-			failed[org.GetLogin()] = fmt.Errorf("failed to list org repos: %w", err)
+			account.Failed[org.GetLogin()] = fmt.Errorf("failed to list org repos: %w", err)
 			continue
 		}
 		for _, repo := range orgRepos {
@@ -217,7 +230,8 @@ func (s *Syncer) ListAccountRepos(ctx context.Context, username string) ([]*gh.R
 		}
 	}
 
-	return repos, failed, nil
+	account.Repos = repos
+	return account, nil
 }
 
 // SyncRepos syncs the given repositories, with archive detection over all of them

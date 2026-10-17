@@ -12,6 +12,7 @@ import (
 	gherrors "github.com/Didstopia/githubby/internal/errors"
 	gitpkg "github.com/Didstopia/githubby/internal/git"
 	"github.com/Didstopia/githubby/internal/github"
+	"github.com/Didstopia/githubby/internal/metadata"
 	"github.com/Didstopia/githubby/internal/schedule"
 	"github.com/Didstopia/githubby/internal/state"
 	"github.com/Didstopia/githubby/internal/sync"
@@ -29,6 +30,7 @@ var (
 	syncAllProfiles    bool
 	syncAllOrgs        bool
 	syncGists          bool
+	syncMetadata       bool
 )
 
 var syncCmd = &cobra.Command{
@@ -51,6 +53,9 @@ Examples:
 
   # Also sync your gists
   githubby sync --all-orgs --target ~/repos --include-private --gists
+
+  # Full backup: repos, wikis, gists, plus issues, pull requests, releases and settings
+  githubby sync --all-orgs --target ~/backup --include-private --gists --metadata
 
   # Include private repositories
   githubby sync --user <username> --target ~/repos --include-private
@@ -81,6 +86,7 @@ func init() {
 	syncCmd.Flags().StringVarP(&syncOrg, "org", "o", "", "GitHub organization to sync repositories from")
 	syncCmd.Flags().BoolVar(&syncAllOrgs, "all-orgs", false, "Sync your own repositories plus every organization you belong to")
 	syncCmd.Flags().BoolVar(&syncGists, "gists", false, "Also sync your gists (secret ones too) into <target>/<you>/gists")
+	syncCmd.Flags().BoolVar(&syncMetadata, "metadata", false, "Also export issues, pull requests, releases, settings and projects as JSON")
 
 	// Target directory
 	syncCmd.Flags().StringVarP(&syncTarget, "target", "T", "", "Target directory for synced repositories")
@@ -106,6 +112,10 @@ func init() {
 	syncCmd.MarkFlagsMutuallyExclusive("all-orgs", "org")
 	syncCmd.MarkFlagsMutuallyExclusive("all-orgs", "profile")
 	syncCmd.MarkFlagsMutuallyExclusive("all-orgs", "all-profiles")
+	for _, backupFlag := range []string{"gists", "metadata"} {
+		syncCmd.MarkFlagsMutuallyExclusive(backupFlag, "profile")
+		syncCmd.MarkFlagsMutuallyExclusive(backupFlag, "all-profiles")
+	}
 
 	// Add to root
 	rootCmd.AddCommand(syncCmd)
@@ -283,7 +293,7 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 		return syncErr
 	}
 
-	return failedError(result)
+	return failedError(result, nil)
 }
 
 // executeSyncWithFlags runs sync using CLI flag values (existing behavior)
@@ -305,10 +315,17 @@ func executeSyncWithFlags(ctx context.Context) error {
 	// Create GitHub client
 	ghClient := github.NewClient(authToken)
 
-	result, syncErr := runFlagSync(ctx, ghClient, git)
+	var exporter *metadata.Exporter
+	if syncMetadata {
+		exporter = metadata.New(github.NewRESTClient(authToken), nil, syncTarget)
+		exporter.Verbose = verbose
+	}
+
+	result, report, syncErr := runFlagSync(ctx, ghClient, git, exporter)
 
 	// Print summary
 	printSyncSummary(result)
+	printMetadataSummary(report)
 
 	if syncErr != nil && (gherrors.IsUnauthorized(syncErr) || gherrors.IsForbidden(syncErr)) {
 		return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
@@ -317,12 +334,12 @@ func executeSyncWithFlags(ctx context.Context) error {
 		return syncErr
 	}
 
-	return failedError(result)
+	return failedError(result, report)
 }
 
-// runFlagSync syncs everything the flags ask for: repos, then gists
-func runFlagSync(ctx context.Context, ghClient github.Client, git *gitpkg.Git) (*sync.Result, error) {
-	// Create sync options
+// runFlagSync syncs everything the flags ask for: repos, then gists, then metadata.
+// Each step runs even when an earlier one failed. exporter is nil without --metadata.
+func runFlagSync(ctx context.Context, ghClient github.Client, git *gitpkg.Git, exporter *metadata.Exporter) (*sync.Result, *metadata.Report, error) {
 	opts := &sync.Options{
 		Target:         syncTarget,
 		Include:        syncInclude,
@@ -333,62 +350,135 @@ func runFlagSync(ctx context.Context, ghClient github.Client, git *gitpkg.Git) (
 		Submodules:     true,
 		Wikis:          true,
 	}
-
-	// Create syncer
 	syncer := sync.New(ghClient, git, opts)
 
-	result, syncErr := syncListedRepos(ctx, ghClient, syncer)
+	result := sync.NewResult()
+	targets, syncErr := listFlagTargets(ctx, ghClient, syncer)
+	if syncErr == nil {
+		var synced *sync.Result
+		synced, syncErr = syncer.SyncRepos(ctx, targets.repos)
+		if synced != nil {
+			result = synced
+		}
+		for name, ferr := range targets.failed {
+			result.Failed[name] = ferr
+		}
+	}
 
 	// Gists sync on their own, even when the repos could not be listed
 	if syncGists {
-		if result == nil {
-			result = sync.NewResult()
-		}
 		if err := syncer.SyncGists(ctx, result); err != nil {
 			result.Failed["gists"] = err
 		}
 	}
 
-	return result, syncErr
+	if exporter == nil || targets == nil {
+		return result, nil, syncErr
+	}
+	if dryRun {
+		fmt.Println("[DRY RUN] Skipping metadata export")
+		return result, nil, syncErr
+	}
+
+	fmt.Println("Exporting metadata")
+	report := metadata.NewReport()
+	for _, repo := range targets.repos {
+		if ctx.Err() != nil {
+			break
+		}
+		if syncer.Matches(repo) {
+			exporter.ExportRepo(ctx, repo, report)
+		}
+	}
+	for _, user := range targets.users {
+		exporter.ExportUser(ctx, user, report)
+	}
+	for _, org := range targets.orgs {
+		exporter.ExportOrg(ctx, org, report)
+	}
+	return result, report, syncErr
 }
 
-// syncListedRepos lists the repos the flags ask for and syncs them
-func syncListedRepos(ctx context.Context, ghClient github.Client, syncer *sync.Syncer) (*sync.Result, error) {
-	listOpts := &github.ListOptions{IncludePrivate: syncIncludePrivate}
-	listFailed := map[string]error{}
+// flagTargets is what the sync flags point at
+type flagTargets struct {
+	repos  []*gh.Repository
+	users  []string
+	orgs   []string
+	failed map[string]error
+}
 
-	var repos []*gh.Repository
+// listFlagTargets lists the repos, users and orgs the flags ask for
+func listFlagTargets(ctx context.Context, ghClient github.Client, syncer *sync.Syncer) (*flagTargets, error) {
+	listOpts := &github.ListOptions{IncludePrivate: syncIncludePrivate}
+	targets := &flagTargets{failed: map[string]error{}}
+
 	var err error
 	switch {
 	case syncAllOrgs:
 		fmt.Println("Syncing repositories for your account and all its organizations")
-		repos, listFailed, err = syncer.ListAccountRepos(ctx, syncUser)
+		var account *sync.Account
+		account, err = syncer.ListAccount(ctx, syncUser)
+		if err == nil {
+			targets.repos, targets.failed = account.Repos, account.Failed
+			targets.users, targets.orgs = []string{account.Login}, account.Orgs
+		}
 	case syncUser != "":
 		fmt.Printf("Syncing repositories for user: %s\n", syncUser)
-		repos, err = ghClient.ListUserRepos(ctx, syncUser, listOpts)
+		targets.repos, err = ghClient.ListUserRepos(ctx, syncUser, listOpts)
+		targets.users = []string{syncUser}
 	default:
 		fmt.Printf("Syncing repositories for organization: %s\n", syncOrg)
-		repos, err = ghClient.ListOrgRepos(ctx, syncOrg, listOpts)
+		targets.repos, err = ghClient.ListOrgRepos(ctx, syncOrg, listOpts)
+		targets.orgs = []string{syncOrg}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to list repos: %w", err)
 	}
-
-	result, err := syncer.SyncRepos(ctx, repos)
-	if result != nil {
-		for name, ferr := range listFailed {
-			result.Failed[name] = ferr
-		}
-	}
-	return result, err
+	return targets, nil
 }
 
-// failedError turns any failed item in a sync result into an error, for the exit code
-func failedError(result *sync.Result) error {
-	if result == nil || len(result.Failed) == 0 {
+// failedError turns any failed item into an error, for the exit code
+func failedError(result *sync.Result, report *metadata.Report) error {
+	n := 0
+	if result != nil {
+		n += len(result.Failed)
+	}
+	if report != nil {
+		n += len(report.Failed)
+	}
+	if n == 0 {
 		return nil
 	}
-	return fmt.Errorf("%d item(s) failed to sync", len(result.Failed))
+	return fmt.Errorf("%d item(s) failed", n)
+}
+
+// printMetadataSummary prints what the metadata export did
+func printMetadataSummary(report *metadata.Report) {
+	if report == nil {
+		return
+	}
+
+	fmt.Println("\n" + strings.Repeat("=", 50))
+	fmt.Println("Metadata Summary")
+	fmt.Println(strings.Repeat("=", 50))
+
+	if len(report.Warnings) > 0 {
+		fmt.Printf("\nWarnings (%d):\n", len(report.Warnings))
+		for _, w := range report.Warnings {
+			fmt.Printf("  - %s\n", w)
+		}
+	}
+
+	if len(report.Failed) > 0 {
+		fmt.Printf("\nFailed (%d):\n", len(report.Failed))
+		for name, err := range report.Failed {
+			fmt.Printf("  - %s: %v\n", name, err)
+		}
+	}
+
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Printf("Total: %d exported, %d warnings, %d failed\n",
+		len(report.Exported), len(report.Warnings), len(report.Failed))
 }
 
 // runScheduled wraps a sync function in a cron scheduler
