@@ -320,6 +320,13 @@ func TestAuthEnv(t *testing.T) {
 		g := &Git{Token: "secret"}
 		assert.Contains(t, g.authEnv(), "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader")
 	})
+
+	t.Run("gist host gets the token too", func(t *testing.T) {
+		env := (&Git{Token: "secret"}).authEnv()
+		assert.Contains(t, env, "GIT_CONFIG_COUNT=2")
+		assert.Contains(t, env, "GIT_CONFIG_KEY_1=http.https://gist.github.com/.extraheader")
+		assert.Contains(t, env, "GIT_CONFIG_VALUE_1=Authorization: Basic eC1hY2Nlc3MtdG9rZW46c2VjcmV0")
+	})
 }
 
 func TestScrubRemoteURL(t *testing.T) {

@@ -54,12 +54,12 @@ func TestSubmoduleUpdate_PassesTokenAndHTTPSRewrite(t *testing.T) {
 
 	log := readLog(t, logPath)
 	assert.Contains(t, log, "ARGS -C "+repo+" submodule update --init --recursive")
-	assert.Contains(t, log, "GIT_CONFIG_COUNT=3")
+	assert.Contains(t, log, "GIT_CONFIG_COUNT=4")
 	assert.Contains(t, log, "GIT_CONFIG_KEY_0=http.https://github.com/.extraheader")
 	assert.Contains(t, log, "GIT_CONFIG_VALUE_0=Authorization: Basic eC1hY2Nlc3MtdG9rZW46c2VjcmV0")
-	assert.Contains(t, log, "GIT_CONFIG_KEY_1=url.https://github.com/.insteadOf")
-	assert.Contains(t, log, "GIT_CONFIG_VALUE_1=git@github.com:")
-	assert.Contains(t, log, "GIT_CONFIG_VALUE_2=ssh://git@github.com/")
+	assert.Contains(t, log, "GIT_CONFIG_KEY_2=url.https://github.com/.insteadOf")
+	assert.Contains(t, log, "GIT_CONFIG_VALUE_2=git@github.com:")
+	assert.Contains(t, log, "GIT_CONFIG_VALUE_3=ssh://git@github.com/")
 }
 
 func TestSubmoduleUpdate_FailureWrapsError(t *testing.T) {

@@ -112,3 +112,36 @@ func TestFailedError(t *testing.T) {
 	assert.NoError(t, failedError(nil))
 	assert.NoError(t, failedError(synpkg.NewResult()))
 }
+
+func TestRunFlagSync_Gists(t *testing.T) {
+	g, err := gitpkg.NewQuiet()
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	resetSyncFlags(t)
+	gists := syncGists
+	t.Cleanup(func() { syncGists = gists })
+
+	up := localUpstream(t)
+	m := github.NewMockClient()
+	m.GetAuthenticatedUserFunc = func(ctx context.Context) (*gh.User, error) { return &gh.User{Login: gh.Ptr("Dids")}, nil }
+	m.ListUserReposFunc = func(ctx context.Context, u string, o *github.ListOptions) ([]*gh.Repository, error) {
+		return nil, errors.New("api down")
+	}
+	m.ListGistsFunc = func(ctx context.Context) ([]*gh.Gist, error) {
+		return []*gh.Gist{{ID: gh.Ptr("g1"), GitPullURL: gh.Ptr(up)}}, nil
+	}
+
+	syncTarget, syncUser, syncOrg, syncAllOrgs, syncGists = t.TempDir(), "Dids", "", false, true
+	result, err := runFlagSync(context.Background(), m, g)
+
+	// Repo listing failed, but gists still synced
+	assert.ErrorContains(t, err, "api down")
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"gist g1"}, result.Gists)
+	assert.DirExists(t, filepath.Join(syncTarget, "Dids", "gists", "g1", ".git"))
+
+	m.ListGistsFunc = func(ctx context.Context) ([]*gh.Gist, error) { return nil, errors.New("no gist scope") }
+	result, _ = runFlagSync(context.Background(), m, g)
+	assert.Contains(t, result.Failed, "gists")
+}

@@ -35,6 +35,9 @@ type Client interface {
 
 	// GetAuthenticatedUser returns the account the token belongs to
 	GetAuthenticatedUser(ctx context.Context) (*gh.User, error)
+
+	// ListGists returns all gists of the authenticated user, secret ones included
+	ListGists(ctx context.Context) ([]*gh.Gist, error)
 }
 
 // ListOptions specifies optional parameters for list operations

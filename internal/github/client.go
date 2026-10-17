@@ -260,6 +260,26 @@ func (c *client) GetAuthenticatedUser(ctx context.Context) (*gh.User, error) {
 	return user, nil
 }
 
+// ListGists returns all gists of the authenticated user, secret ones included
+func (c *client) ListGists(ctx context.Context) ([]*gh.Gist, error) {
+	var all []*gh.Gist
+	opts := &gh.GistListOptions{ListOptions: gh.ListOptions{Page: 1, PerPage: 100}}
+
+	for {
+		gists, resp, err := c.ghClient.Gists.List(ctx, "", opts)
+		if err != nil {
+			return nil, wrapAPIError(resp, err)
+		}
+		all = append(all, gists...)
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return all, nil
+}
+
 // wrapAPIError converts a GitHub API response error to our error type.
 // It checks go-github typed errors first for accurate rate-limit detection,
 // then falls back to status code mapping. GitHub API error messages are

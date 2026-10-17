@@ -28,6 +28,7 @@ var (
 	syncProfile        string
 	syncAllProfiles    bool
 	syncAllOrgs        bool
+	syncGists          bool
 )
 
 var syncCmd = &cobra.Command{
@@ -47,6 +48,9 @@ Examples:
 
   # Sync your own repositories plus every organization you belong to
   githubby sync --all-orgs --target ~/repos --include-private
+
+  # Also sync your gists
+  githubby sync --all-orgs --target ~/repos --include-private --gists
 
   # Include private repositories
   githubby sync --user <username> --target ~/repos --include-private
@@ -76,6 +80,7 @@ func init() {
 	syncCmd.Flags().StringVarP(&syncUser, "user", "u", "", "GitHub username to sync repositories from")
 	syncCmd.Flags().StringVarP(&syncOrg, "org", "o", "", "GitHub organization to sync repositories from")
 	syncCmd.Flags().BoolVar(&syncAllOrgs, "all-orgs", false, "Sync your own repositories plus every organization you belong to")
+	syncCmd.Flags().BoolVar(&syncGists, "gists", false, "Also sync your gists (secret ones too) into <target>/<you>/gists")
 
 	// Target directory
 	syncCmd.Flags().StringVarP(&syncTarget, "target", "T", "", "Target directory for synced repositories")
@@ -300,6 +305,23 @@ func executeSyncWithFlags(ctx context.Context) error {
 	// Create GitHub client
 	ghClient := github.NewClient(authToken)
 
+	result, syncErr := runFlagSync(ctx, ghClient, git)
+
+	// Print summary
+	printSyncSummary(result)
+
+	if syncErr != nil && (gherrors.IsUnauthorized(syncErr) || gherrors.IsForbidden(syncErr)) {
+		return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
+	}
+	if syncErr != nil {
+		return syncErr
+	}
+
+	return failedError(result)
+}
+
+// runFlagSync syncs everything the flags ask for: repos, then gists
+func runFlagSync(ctx context.Context, ghClient github.Client, git *gitpkg.Git) (*sync.Result, error) {
 	// Create sync options
 	opts := &sync.Options{
 		Target:         syncTarget,
@@ -317,17 +339,17 @@ func executeSyncWithFlags(ctx context.Context) error {
 
 	result, syncErr := syncListedRepos(ctx, ghClient, syncer)
 
-	// Print summary
-	printSyncSummary(result)
-
-	if syncErr != nil && (gherrors.IsUnauthorized(syncErr) || gherrors.IsForbidden(syncErr)) {
-		return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
+	// Gists sync on their own, even when the repos could not be listed
+	if syncGists {
+		if result == nil {
+			result = sync.NewResult()
+		}
+		if err := syncer.SyncGists(ctx, result); err != nil {
+			result.Failed["gists"] = err
+		}
 	}
-	if syncErr != nil {
-		return syncErr
-	}
 
-	return failedError(result)
+	return result, syncErr
 }
 
 // syncListedRepos lists the repos the flags ask for and syncs them
@@ -409,6 +431,13 @@ func printSyncSummary(result *sync.Result) {
 		fmt.Printf("\nWikis (%d):\n", len(result.Wikis))
 		for _, wiki := range result.Wikis {
 			fmt.Printf("  - %s\n", wiki)
+		}
+	}
+
+	if len(result.Gists) > 0 {
+		fmt.Printf("\nGists (%d):\n", len(result.Gists))
+		for _, gist := range result.Gists {
+			fmt.Printf("  - %s\n", gist)
 		}
 	}
 

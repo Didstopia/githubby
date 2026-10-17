@@ -119,8 +119,12 @@ func (g *Git) authConfig() []string {
 	if g.Token == "" {
 		return nil
 	}
-	cred := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + g.Token))
-	return []string{"http.https://" + g.host() + "/.extraheader", "Authorization: Basic " + cred}
+	header := "Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte("x-access-token:"+g.Token))
+	// Gists live on their own host
+	return []string{
+		"http.https://" + g.host() + "/.extraheader", header,
+		"http.https://gist." + g.host() + "/.extraheader", header,
+	}
 }
 
 // withConfig returns the current environment plus git config key/value pairs for one command

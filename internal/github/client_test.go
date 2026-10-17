@@ -545,3 +545,41 @@ func TestGetRateLimit(t *testing.T) {
 		assert.ErrorIs(t, err, gherrors.ErrUnauthorized)
 	})
 }
+
+func TestGetAuthenticatedUserAndListGists(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	httpmock.RegisterResponder("GET", "https://api.github.com/user",
+		httpmock.NewJsonResponderOrPanic(200, map[string]any{"login": "Dids"}))
+	httpmock.RegisterResponder("GET", "https://api.github.com/gists",
+		func(req *http.Request) (*http.Response, error) {
+			if req.URL.Query().Get("page") == "2" {
+				return httpmock.NewJsonResponse(200, []map[string]any{{"id": "b"}})
+			}
+			resp, _ := httpmock.NewJsonResponse(200, []map[string]any{{"id": "a", "public": false}})
+			resp.Header.Set("Link", `<https://api.github.com/gists?page=2>; rel="next"`)
+			return resp, nil
+		})
+
+	client := NewClient("test-token")
+	user, err := client.GetAuthenticatedUser(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "Dids", user.GetLogin())
+
+	gists, err := client.ListGists(context.Background())
+	require.NoError(t, err)
+	require.Len(t, gists, 2)
+	assert.Equal(t, "a", gists[0].GetID())
+	assert.Equal(t, "b", gists[1].GetID())
+
+	httpmock.RegisterResponder("GET", "https://api.github.com/gists",
+		httpmock.NewJsonResponderOrPanic(401, map[string]string{"message": "Bad credentials"}))
+	_, err = client.ListGists(context.Background())
+	assert.ErrorIs(t, err, gherrors.ErrUnauthorized)
+
+	httpmock.RegisterResponder("GET", "https://api.github.com/user",
+		httpmock.NewJsonResponderOrPanic(401, map[string]string{"message": "Bad credentials"}))
+	_, err = client.GetAuthenticatedUser(context.Background())
+	assert.ErrorIs(t, err, gherrors.ErrUnauthorized)
+}

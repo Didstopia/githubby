@@ -35,6 +35,9 @@ type MockClient struct {
 	// GetAuthenticatedUserFunc can be set to mock GetAuthenticatedUser behavior
 	GetAuthenticatedUserFunc func(ctx context.Context) (*gh.User, error)
 
+	// ListGistsFunc can be set to mock ListGists behavior
+	ListGistsFunc func(ctx context.Context) ([]*gh.Gist, error)
+
 	// Call tracking
 	Calls []MockCall
 }
@@ -131,6 +134,15 @@ func (m *MockClient) GetAuthenticatedUser(ctx context.Context) (*gh.User, error)
 		return m.GetAuthenticatedUserFunc(ctx)
 	}
 	return &gh.User{Login: gh.Ptr("mock-user")}, nil
+}
+
+// ListGists implements Client.ListGists
+func (m *MockClient) ListGists(ctx context.Context) ([]*gh.Gist, error) {
+	m.Calls = append(m.Calls, MockCall{Method: "ListGists", Args: []interface{}{}})
+	if m.ListGistsFunc != nil {
+		return m.ListGistsFunc(ctx)
+	}
+	return nil, nil
 }
 
 // Reset clears all recorded calls

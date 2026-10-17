@@ -102,6 +102,9 @@ type Result struct {
 
 	// Wikis that were cloned or fetched
 	Wikis []string
+
+	// Gists that were cloned or fetched
+	Gists []string
 }
 
 // NewResult creates a new sync result
@@ -115,6 +118,7 @@ func NewResult() *Result {
 		Archived: make([]string, 0),
 		Warnings: make([]string, 0),
 		Wikis:    make([]string, 0),
+		Gists:    make([]string, 0),
 	}
 }
 
@@ -487,7 +491,7 @@ func (s *Syncer) detectArchived(remoteRepos []*gh.Repository) []string {
 			// Check if this repo exists on remote
 			// Normalize path separators for cross-platform
 			normalizedPath := filepath.ToSlash(relPath)
-			if !remoteSet[normalizedPath] {
+			if !remoteSet[normalizedPath] && !isGistPath(normalizedPath) {
 				archived = append(archived, normalizedPath)
 			}
 
@@ -498,6 +502,12 @@ func (s *Syncer) detectArchived(remoteRepos []*gh.Repository) []string {
 	})
 
 	return archived
+}
+
+// isGistPath reports whether a slash path relative to target is <user>/gists/<id>
+func isGistPath(rel string) bool {
+	parts := strings.Split(rel, "/")
+	return len(parts) == 3 && parts[1] == "gists"
 }
 
 // reportProgress calls the progress callback if set
