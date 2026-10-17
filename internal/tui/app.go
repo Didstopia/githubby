@@ -651,6 +651,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			a.updateComplete = true
 			a.version = msg.NewVersion
+			a.restartAfterQuit = true
 		}
 
 	case UpdateErrorMsg:
