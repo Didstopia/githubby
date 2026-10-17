@@ -102,5 +102,6 @@ func TestWikiHelpers(t *testing.T) {
 
 	assert.True(t, IsRepoNotFound(errors.New("fatal: repository 'https://github.com/o/r.wiki.git/' not found")))
 	assert.True(t, IsRepoNotFound(errors.New("fatal: repository '/x' does not exist")))
+	assert.True(t, IsRepoNotFound(errors.New("fatal: '/x.wiki.git' does not appear to be a git repository")))
 	assert.False(t, IsRepoNotFound(errors.New("fatal: unable to access: timeout")))
 }

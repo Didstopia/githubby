@@ -54,3 +54,27 @@ func TestGraphQL(t *testing.T) {
 		assert.Error(t, GraphQL(ctx, client, "q", nil, &out))
 	})
 }
+
+func TestGetIssuePRCounts(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+	client := NewClient("test-token")
+	ctx := context.Background()
+
+	httpmock.RegisterResponder("POST", "https://api.github.com/graphql",
+		httpmock.NewStringResponder(200, `{"data":{"repository":{"issues":{"totalCount":4},"pullRequests":{"totalCount":7}}}}`))
+	issues, pulls, err := client.GetIssuePRCounts(ctx, "o", "r")
+	require.NoError(t, err)
+	assert.Equal(t, 4, issues)
+	assert.Equal(t, 7, pulls)
+
+	httpmock.RegisterResponder("POST", "https://api.github.com/graphql",
+		httpmock.NewStringResponder(200, `{"data":{"repository":null},"errors":[{"type":"NOT_FOUND","message":"gone"}]}`))
+	_, _, err = client.GetIssuePRCounts(ctx, "o", "r")
+	assert.ErrorContains(t, err, "NOT_FOUND")
+
+	httpmock.RegisterResponder("POST", "https://api.github.com/graphql",
+		httpmock.NewStringResponder(200, `{"data":{"repository":null}}`))
+	_, _, err = client.GetIssuePRCounts(ctx, "o", "r")
+	assert.ErrorContains(t, err, "not returned")
+}

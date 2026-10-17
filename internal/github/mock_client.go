@@ -38,6 +38,9 @@ type MockClient struct {
 	// ListGistsFunc can be set to mock ListGists behavior
 	ListGistsFunc func(ctx context.Context) ([]*gh.Gist, error)
 
+	// GetIssuePRCountsFunc can be set to mock GetIssuePRCounts behavior
+	GetIssuePRCountsFunc func(ctx context.Context, owner, repo string) (int, int, error)
+
 	// Call tracking
 	Calls []MockCall
 }
@@ -143,6 +146,15 @@ func (m *MockClient) ListGists(ctx context.Context) ([]*gh.Gist, error) {
 		return m.ListGistsFunc(ctx)
 	}
 	return nil, nil
+}
+
+// GetIssuePRCounts implements Client.GetIssuePRCounts
+func (m *MockClient) GetIssuePRCounts(ctx context.Context, owner, repo string) (int, int, error) {
+	m.Calls = append(m.Calls, MockCall{Method: "GetIssuePRCounts", Args: []interface{}{owner, repo}})
+	if m.GetIssuePRCountsFunc != nil {
+		return m.GetIssuePRCountsFunc(ctx, owner, repo)
+	}
+	return 0, 0, nil
 }
 
 // Reset clears all recorded calls

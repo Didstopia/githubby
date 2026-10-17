@@ -271,6 +271,26 @@ func (c *client) ListGists(ctx context.Context) ([]*gh.Gist, error) {
 	return all, nil
 }
 
+// GetIssuePRCounts returns how many issues and pull requests (all states) a repo has
+func (c *client) GetIssuePRCounts(ctx context.Context, owner, repo string) (int, int, error) {
+	var data struct {
+		Repository *struct {
+			Issues       struct{ TotalCount int } `json:"issues"`
+			PullRequests struct{ TotalCount int } `json:"pullRequests"`
+		} `json:"repository"`
+	}
+	query := `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) { issues { totalCount } pullRequests { totalCount } }
+}`
+	if err := GraphQL(ctx, c.ghClient, query, map[string]any{"owner": owner, "name": repo}, &data); err != nil {
+		return 0, 0, err
+	}
+	if data.Repository == nil {
+		return 0, 0, fmt.Errorf("repository %s/%s not returned", owner, repo)
+	}
+	return data.Repository.Issues.TotalCount, data.Repository.PullRequests.TotalCount, nil
+}
+
 // wrapAPIError converts a GitHub API response error to our error type.
 // It checks go-github typed errors first for accurate rate-limit detection,
 // then falls back to status code mapping. GitHub API error messages are

@@ -458,7 +458,8 @@ func (s *Syncer) syncWiki(ctx context.Context, repo *gh.Repository, result *Resu
 // IsRepoNotFound reports whether a git error means the remote repo does not exist
 func IsRepoNotFound(err error) bool {
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist")
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "does not exist") ||
+		strings.Contains(msg, "does not appear to be a git repository")
 }
 
 // afterSync runs the optional backup steps for a repo whose git data synced fine.

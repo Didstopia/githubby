@@ -38,6 +38,9 @@ type Client interface {
 
 	// ListGists returns all gists of the authenticated user, secret ones included
 	ListGists(ctx context.Context) ([]*gh.Gist, error)
+
+	// GetIssuePRCounts returns how many issues and pull requests (all states) a repo has
+	GetIssuePRCounts(ctx context.Context, owner, repo string) (issues, pulls int, err error)
 }
 
 // ListOptions specifies optional parameters for list operations
