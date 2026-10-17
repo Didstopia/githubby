@@ -31,16 +31,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # Build the exact commit the Release workflow ran on.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
-      - name: Determine tag
+      - name: Determine tag and build info
         id: get_tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+          elif printf '%s' "$HEAD_BRANCH" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            # Release published: head_branch is the release tag
+            TAG="$HEAD_BRANCH"
           else
-            # workflow_run: find the latest semver tag pointing at HEAD
-            TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            # Release dispatched by hand: head_branch is a branch, so use the tag on the built commit
+            TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
           fi
 
           if [ -z "$TAG" ]; then
@@ -48,7 +57,10 @@ jobs:
             exit 1
           fi
 
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           echo "Using tag: $TAG"
 
       - name: Set up Docker Buildx
@@ -81,8 +93,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ steps.get_tag.outputs.tag }}
-            COMMIT=${{ github.sha }}
-            BUILD_DATE=${{ github.event.repository.updated_at }}
+            VERSION=${{ steps.get_tag.outputs.version }}
+            COMMIT=${{ steps.get_tag.outputs.commit }}
+            BUILD_DATE=${{ steps.get_tag.outputs.build_date }}
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true
