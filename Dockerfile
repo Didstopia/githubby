@@ -13,7 +13,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w \
 FROM alpine:3.22
 # The backup may be owned by another uid than the container runs as, so trust every repo.
 # LFS filters go in the system config, so every uid has them.
-RUN apk add --no-cache git git-lfs ca-certificates \
+# tzdata lets TZ (e.g. Europe/Helsinki) set the zone --schedule runs in; UTC without it
+RUN apk add --no-cache git git-lfs ca-certificates tzdata \
     && git config --system --add safe.directory '*' \
     && git lfs install --system --skip-repo
 COPY --from=builder /githubby /githubby

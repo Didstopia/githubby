@@ -88,6 +88,9 @@ jobs:
           docker run --rm --entrypoint git githubby:ci --version
           docker run --rm --entrypoint git githubby:ci lfs version
 
+      - name: Smoke test — TZ sets the time zone
+        run: docker run --rm -e TZ=Europe/Helsinki --entrypoint date githubby:ci +%Z | grep -E '^EES?T$'
+
       - name: Smoke test — sync help
         run: docker run --rm githubby:ci sync --help
 
