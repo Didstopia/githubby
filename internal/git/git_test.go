@@ -410,3 +410,15 @@ func TestScrubRemoteURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/owner/repo.git", url)
 }
+
+func TestCloneErrorIncludesGitOutput(t *testing.T) {
+	g, err := New()
+	if err != nil {
+		t.Skip("git not installed")
+	}
+
+	// Not quiet: stderr goes to the terminal but must still reach the error
+	err = g.Clone(context.Background(), filepath.Join(t.TempDir(), "missing"), filepath.Join(t.TempDir(), "dst"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist")
+}

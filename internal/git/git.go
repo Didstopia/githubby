@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	neturl "net/url"
 	"os"
 	"os/exec"
@@ -75,15 +76,13 @@ func NewQuietWithToken(token string) (*Git, error) {
 func (g *Git) Clone(ctx context.Context, url, targetDir string) error {
 	cmd := exec.CommandContext(ctx, g.GitPath, "clone", url, targetDir)
 	cmd.Env = g.authEnv()
+
+	// Always capture stderr for error reporting, and show it too unless quiet
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
 	if !g.Quiet {
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-
-	// Always capture stderr for error reporting
-	var stderrBuf strings.Builder
-	if g.Quiet {
-		cmd.Stderr = &stderrBuf
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	}
 
 	if err := cmd.Run(); err != nil {
@@ -195,15 +194,13 @@ func (g *Git) FetchAll(ctx context.Context, repoDir string) error {
 
 	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "fetch", "--all", "--prune")
 	cmd.Env = g.authEnv()
+
+	// Always capture stderr for error reporting, and show it too unless quiet
+	var stderrBuf strings.Builder
+	cmd.Stderr = &stderrBuf
 	if !g.Quiet {
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-
-	// Always capture stderr for error reporting
-	var stderrBuf strings.Builder
-	if g.Quiet {
-		cmd.Stderr = &stderrBuf
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 	}
 
 	if err := cmd.Run(); err != nil {
