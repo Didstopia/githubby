@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w \
     -X main.BuildDate=${BUILD_DATE}" \
     -o /githubby .
 
-FROM scratch
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+FROM alpine:3.22
+RUN apk add --no-cache git git-lfs ca-certificates
 COPY --from=builder /githubby /githubby
+ENV GITHUBBY_NO_UPDATE=1
 ENTRYPOINT ["/githubby"]
