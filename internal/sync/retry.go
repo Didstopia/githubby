@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/Didstopia/githubby/internal/git"
@@ -89,7 +90,23 @@ func isTransientGitError(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
+	// Retrying won't fix bad credentials, a missing repo or a full disk
+	msg := strings.ToLower(err.Error())
+	for _, permanent := range permanentGitErrors {
+		if strings.Contains(msg, permanent) {
+			return false
+		}
+	}
 	return errors.Is(err, git.ErrCloneFailed) ||
 		errors.Is(err, git.ErrFetchFailed) ||
 		errors.Is(err, git.ErrPullFailed)
+}
+
+// permanentGitErrors are lowercase git error fragments that never succeed on retry
+var permanentGitErrors = []string{
+	"authentication failed",
+	"not found",
+	"permission denied",
+	"could not read username",
+	"no space left",
 }
