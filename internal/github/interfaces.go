@@ -32,6 +32,9 @@ type Client interface {
 
 	// GetBranchRef returns the SHA of a branch (used for fast sync check)
 	GetBranchRef(ctx context.Context, owner, repo, branch string) (string, error)
+
+	// GetAuthenticatedUser returns the account the token belongs to
+	GetAuthenticatedUser(ctx context.Context) (*gh.User, error)
 }
 
 // ListOptions specifies optional parameters for list operations

@@ -251,6 +251,15 @@ func (c *client) GetBranchRef(ctx context.Context, owner, repo, branch string) (
 	return ref.GetObject().GetSHA(), nil
 }
 
+// GetAuthenticatedUser returns the account the token belongs to
+func (c *client) GetAuthenticatedUser(ctx context.Context) (*gh.User, error) {
+	user, resp, err := c.ghClient.Users.Get(ctx, "")
+	if err != nil {
+		return nil, wrapAPIError(resp, err)
+	}
+	return user, nil
+}
+
 // wrapAPIError converts a GitHub API response error to our error type.
 // It checks go-github typed errors first for accurate rate-limit detection,
 // then falls back to status code mapping. GitHub API error messages are

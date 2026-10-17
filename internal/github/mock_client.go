@@ -32,6 +32,9 @@ type MockClient struct {
 	// GetBranchRefFunc can be set to mock GetBranchRef behavior
 	GetBranchRefFunc func(ctx context.Context, owner, repo, branch string) (string, error)
 
+	// GetAuthenticatedUserFunc can be set to mock GetAuthenticatedUser behavior
+	GetAuthenticatedUserFunc func(ctx context.Context) (*gh.User, error)
+
 	// Call tracking
 	Calls []MockCall
 }
@@ -119,6 +122,15 @@ func (m *MockClient) GetBranchRef(ctx context.Context, owner, repo, branch strin
 		return m.GetBranchRefFunc(ctx, owner, repo, branch)
 	}
 	return "mock-sha-12345", nil
+}
+
+// GetAuthenticatedUser implements Client.GetAuthenticatedUser
+func (m *MockClient) GetAuthenticatedUser(ctx context.Context) (*gh.User, error) {
+	m.Calls = append(m.Calls, MockCall{Method: "GetAuthenticatedUser", Args: []interface{}{}})
+	if m.GetAuthenticatedUserFunc != nil {
+		return m.GetAuthenticatedUserFunc(ctx)
+	}
+	return &gh.User{Login: gh.Ptr("mock-user")}, nil
 }
 
 // Reset clears all recorded calls

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	gh "github.com/google/go-github/v86/github"
 	"github.com/spf13/cobra"
 
 	"github.com/Didstopia/githubby/internal/auth"
@@ -26,6 +27,7 @@ var (
 	syncSchedule       string
 	syncProfile        string
 	syncAllProfiles    bool
+	syncAllOrgs        bool
 )
 
 var syncCmd = &cobra.Command{
@@ -42,6 +44,9 @@ Examples:
 
   # Sync all repositories for an organization
   githubby sync --org <orgname> --target ~/repos
+
+  # Sync your own repositories plus every organization you belong to
+  githubby sync --all-orgs --target ~/repos --include-private
 
   # Include private repositories
   githubby sync --user <username> --target ~/repos --include-private
@@ -70,6 +75,7 @@ func init() {
 	// User/Org flags
 	syncCmd.Flags().StringVarP(&syncUser, "user", "u", "", "GitHub username to sync repositories from")
 	syncCmd.Flags().StringVarP(&syncOrg, "org", "o", "", "GitHub organization to sync repositories from")
+	syncCmd.Flags().BoolVar(&syncAllOrgs, "all-orgs", false, "Sync your own repositories plus every organization you belong to")
 
 	// Target directory
 	syncCmd.Flags().StringVarP(&syncTarget, "target", "T", "", "Target directory for synced repositories")
@@ -92,6 +98,9 @@ func init() {
 	syncCmd.MarkFlagsMutuallyExclusive("profile", "org")
 	syncCmd.MarkFlagsMutuallyExclusive("all-profiles", "user")
 	syncCmd.MarkFlagsMutuallyExclusive("all-profiles", "org")
+	syncCmd.MarkFlagsMutuallyExclusive("all-orgs", "org")
+	syncCmd.MarkFlagsMutuallyExclusive("all-orgs", "profile")
+	syncCmd.MarkFlagsMutuallyExclusive("all-orgs", "all-profiles")
 
 	// Add to root
 	rootCmd.AddCommand(syncCmd)
@@ -116,8 +125,8 @@ func runSync(cmd *cobra.Command, args []string) error {
 	if syncTarget == "" {
 		return fmt.Errorf("--target is required (or use --profile/--all-profiles)")
 	}
-	if syncUser == "" && syncOrg == "" {
-		return fmt.Errorf("either --user or --org must be specified (or use --profile/--all-profiles)")
+	if syncUser == "" && syncOrg == "" && !syncAllOrgs {
+		return fmt.Errorf("either --user, --org or --all-orgs must be specified (or use --profile/--all-profiles)")
 	}
 	if syncUser != "" && syncOrg != "" {
 		return fmt.Errorf("only one of --user or --org can be specified")
@@ -265,8 +274,11 @@ func executeSyncForProfile(ctx context.Context, profile *state.SyncProfile) erro
 	if syncErr != nil && (gherrors.IsUnauthorized(syncErr) || gherrors.IsForbidden(syncErr)) {
 		return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
 	}
+	if syncErr != nil {
+		return syncErr
+	}
 
-	return syncErr
+	return failedError(result)
 }
 
 // executeSyncWithFlags runs sync using CLI flag values (existing behavior)
@@ -303,17 +315,7 @@ func executeSyncWithFlags(ctx context.Context) error {
 	// Create syncer
 	syncer := sync.New(ghClient, git, opts)
 
-	// Determine what to sync
-	var result *sync.Result
-	var syncErr error
-
-	if syncUser != "" {
-		fmt.Printf("Syncing repositories for user: %s\n", syncUser)
-		result, syncErr = syncer.SyncUserRepos(ctx, syncUser)
-	} else {
-		fmt.Printf("Syncing repositories for organization: %s\n", syncOrg)
-		result, syncErr = syncer.SyncOrgRepos(ctx, syncOrg)
-	}
+	result, syncErr := syncListedRepos(ctx, ghClient, syncer)
 
 	// Print summary
 	printSyncSummary(result)
@@ -321,8 +323,50 @@ func executeSyncWithFlags(ctx context.Context) error {
 	if syncErr != nil && (gherrors.IsUnauthorized(syncErr) || gherrors.IsForbidden(syncErr)) {
 		return gherrors.NewExpiredTokenError(auth.FormatTokenSource(resolvedToken.Source))
 	}
+	if syncErr != nil {
+		return syncErr
+	}
 
-	return syncErr
+	return failedError(result)
+}
+
+// syncListedRepos lists the repos the flags ask for and syncs them
+func syncListedRepos(ctx context.Context, ghClient github.Client, syncer *sync.Syncer) (*sync.Result, error) {
+	listOpts := &github.ListOptions{IncludePrivate: syncIncludePrivate}
+	listFailed := map[string]error{}
+
+	var repos []*gh.Repository
+	var err error
+	switch {
+	case syncAllOrgs:
+		fmt.Println("Syncing repositories for your account and all its organizations")
+		repos, listFailed, err = syncer.ListAccountRepos(ctx, syncUser)
+	case syncUser != "":
+		fmt.Printf("Syncing repositories for user: %s\n", syncUser)
+		repos, err = ghClient.ListUserRepos(ctx, syncUser, listOpts)
+	default:
+		fmt.Printf("Syncing repositories for organization: %s\n", syncOrg)
+		repos, err = ghClient.ListOrgRepos(ctx, syncOrg, listOpts)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repos: %w", err)
+	}
+
+	result, err := syncer.SyncRepos(ctx, repos)
+	if result != nil {
+		for name, ferr := range listFailed {
+			result.Failed[name] = ferr
+		}
+	}
+	return result, err
+}
+
+// failedError turns any failed item in a sync result into an error, for the exit code
+func failedError(result *sync.Result) error {
+	if result == nil || len(result.Failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d item(s) failed to sync", len(result.Failed))
 }
 
 // runScheduled wraps a sync function in a cron scheduler

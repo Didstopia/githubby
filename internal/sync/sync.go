@@ -169,6 +169,63 @@ func (s *Syncer) SyncOrgRepos(ctx context.Context, org string) (*Result, error) 
 	return s.syncRepos(ctx, repos)
 }
 
+// ListAccountRepos returns the repos of a user plus every org the token's account
+// belongs to. An empty username means the token's own account. An org whose repos
+// can't be listed lands in failed (keyed by org name); the rest still come back.
+func (s *Syncer) ListAccountRepos(ctx context.Context, username string) ([]*gh.Repository, map[string]error, error) {
+	if username == "" {
+		user, err := s.ghClient.GetAuthenticatedUser(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get authenticated user: %w", err)
+		}
+		username = user.GetLogin()
+	}
+
+	listOpts := &github.ListOptions{IncludePrivate: s.opts.IncludePrivate}
+
+	repos, err := s.ghClient.ListUserRepos(ctx, username, listOpts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list user repos: %w", err)
+	}
+
+	orgs, err := s.ghClient.ListUserOrgs(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list orgs: %w", err)
+	}
+
+	seen := make(map[string]bool)
+	for _, repo := range repos {
+		seen[repo.GetFullName()] = true
+	}
+
+	failed := make(map[string]error)
+	for _, org := range orgs {
+		orgRepos, err := s.ghClient.ListOrgRepos(ctx, org.GetLogin(), listOpts)
+		if err != nil {
+			failed[org.GetLogin()] = fmt.Errorf("failed to list org repos: %w", err)
+			continue
+		}
+		for _, repo := range orgRepos {
+			if !seen[repo.GetFullName()] {
+				seen[repo.GetFullName()] = true
+				repos = append(repos, repo)
+			}
+		}
+	}
+
+	return repos, failed, nil
+}
+
+// SyncRepos syncs the given repositories, with archive detection over all of them
+func (s *Syncer) SyncRepos(ctx context.Context, repos []*gh.Repository) (*Result, error) {
+	return s.syncRepos(ctx, repos)
+}
+
+// Matches reports whether a repo passes the include/exclude filters
+func (s *Syncer) Matches(repo *gh.Repository) bool {
+	return s.shouldSync(repo.GetName())
+}
+
 // SyncRepo syncs a single repository
 func (s *Syncer) SyncRepo(ctx context.Context, owner, repo string) (*Result, error) {
 	repository, err := s.ghClient.GetRepository(ctx, owner, repo)
