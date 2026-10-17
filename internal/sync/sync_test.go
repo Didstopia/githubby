@@ -54,6 +54,18 @@ func TestMatchGlob(t *testing.T) {
 			expected: false,
 		},
 		{
+			name:     "contains match",
+			pattern:  "*mid*",
+			input:    "has-mid-part",
+			expected: true,
+		},
+		{
+			name:     "contains no match",
+			pattern:  "*mid*",
+			input:    "something-else",
+			expected: false,
+		},
+		{
 			name:     "exact match",
 			pattern:  "exact",
 			input:    "exact",

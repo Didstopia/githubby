@@ -655,6 +655,12 @@ func matchGlob(pattern, name string) bool {
 		return true
 	}
 
+	// Handle contains (*pattern*)
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		middle := strings.Trim(pattern, "*")
+		return strings.Contains(name, middle)
+	}
+
 	// Handle prefix match (pattern*)
 	if strings.HasSuffix(pattern, "*") {
 		prefix := strings.TrimSuffix(pattern, "*")
@@ -665,12 +671,6 @@ func matchGlob(pattern, name string) bool {
 	if strings.HasPrefix(pattern, "*") {
 		suffix := strings.TrimPrefix(pattern, "*")
 		return strings.HasSuffix(name, suffix)
-	}
-
-	// Handle contains (*pattern*)
-	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
-		middle := strings.Trim(pattern, "*")
-		return strings.Contains(name, middle)
 	}
 
 	// Exact match
