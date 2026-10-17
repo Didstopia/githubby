@@ -33,6 +33,9 @@ func DefaultGitRetryConfig() *GitRetryConfig {
 	}
 }
 
+// gitRetryConfig is the retry setup the sync code uses; tests swap it for a fast one
+var gitRetryConfig = DefaultGitRetryConfig
+
 // withGitRetry executes operation with retry logic and exponential backoff.
 // cleanupFn is called before each retry attempt (can be nil).
 // isRetryable determines whether a given error should trigger a retry.

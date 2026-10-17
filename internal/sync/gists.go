@@ -57,14 +57,14 @@ func (s *Syncer) syncGist(ctx context.Context, gist *gh.Gist, dir string) error 
 
 	var err error
 	if s.git.IsGitRepo(localPath) {
-		err = withGitRetry(ctx, DefaultGitRetryConfig(),
+		err = withGitRetry(ctx, gitRetryConfig(),
 			func() error { return s.git.FetchAll(ctx, localPath) },
 			nil, isTransientGitError)
 	} else {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
-		err = withGitRetry(ctx, DefaultGitRetryConfig(),
+		err = withGitRetry(ctx, gitRetryConfig(),
 			func() error { return s.git.Clone(ctx, gist.GetGitPullURL(), localPath) },
 			func() error { return os.RemoveAll(localPath) },
 			isTransientGitError)

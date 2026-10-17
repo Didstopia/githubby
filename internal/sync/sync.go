@@ -442,11 +442,11 @@ func (s *Syncer) syncWiki(ctx context.Context, repo *gh.Repository, result *Resu
 
 	var err error
 	if s.git.IsGitRepo(localPath) {
-		err = withGitRetry(ctx, DefaultGitRetryConfig(),
+		err = withGitRetry(ctx, gitRetryConfig(),
 			func() error { return s.git.FetchAll(ctx, localPath) },
 			nil, isTransientGitError)
 	} else {
-		err = withGitRetry(ctx, DefaultGitRetryConfig(),
+		err = withGitRetry(ctx, gitRetryConfig(),
 			func() error { return s.git.Clone(ctx, url, localPath) },
 			func() error { return os.RemoveAll(localPath) },
 			isTransientGitError)
@@ -488,7 +488,7 @@ func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath s
 
 	// Pull requests from forks don't change pushed_at, so this runs even when fast sync skipped the fetch
 	if s.opts.PullRefs {
-		err := withGitRetry(ctx, DefaultGitRetryConfig(),
+		err := withGitRetry(ctx, gitRetryConfig(),
 			func() error { return s.git.FetchPullRefs(ctx, localPath) },
 			nil, isTransientGitError)
 		if err != nil {
@@ -608,7 +608,7 @@ func (s *Syncer) cloneRepo(ctx context.Context, repo *gh.Repository, localPath s
 	cloneURL := repo.GetCloneURL()
 
 	// Retry clone on transient failures (e.g., Dropbox file locking on Windows)
-	if err := withGitRetry(ctx, DefaultGitRetryConfig(),
+	if err := withGitRetry(ctx, gitRetryConfig(),
 		func() error {
 			return s.git.Clone(ctx, cloneURL, localPath)
 		},
@@ -689,7 +689,7 @@ func (s *Syncer) pullRepo(ctx context.Context, repo *gh.Repository, localPath st
 	// Using fetch instead of pull so we update all remote-tracking branches
 	// without modifying the working directory
 	// Retry on transient failures (e.g., Dropbox file locking on Windows)
-	if err := withGitRetry(ctx, DefaultGitRetryConfig(),
+	if err := withGitRetry(ctx, gitRetryConfig(),
 		func() error {
 			return s.git.FetchAll(ctx, localPath)
 		},
