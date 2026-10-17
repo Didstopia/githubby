@@ -34,6 +34,8 @@ func (g *Git) SubmoduleUpdate(ctx context.Context, repoDir string) error {
 	pairs := append(g.authConfig(),
 		https, "git@"+g.host()+":",
 		https, "ssh://git@"+g.host()+"/",
+		// GitHub turned off the git:// protocol in 2022; old submodules still use it
+		https, "git://"+g.host()+"/",
 	)
 
 	// Picks up submodule URLs that changed in .gitmodules since the last checkout
