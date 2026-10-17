@@ -41,14 +41,8 @@ func (l *Loader) Initialize() error {
 	l.viper.SetConfigType(DefaultConfigFileType)
 
 	// Load configuration file
-	if err := l.viper.ReadInConfig(); err != nil {
-		return err
-	}
-
-	// Enable environment variable support
-	l.viper.AutomaticEnv()
-
-	return nil
+	// No AutomaticEnv: it maps unrelated env vars like $USER onto flags.
+	return l.viper.ReadInConfig()
 }
 
 // BindFlag binds a flag to a viper key
@@ -81,13 +75,18 @@ func (l *Loader) IsSet(key string) bool {
 	return l.viper.IsSet(key)
 }
 
-// InjectToCommand injects viper config values into command flags
+// InjectToCommand injects config file values into command flags
 // that weren't explicitly set via command line
 func (l *Loader) InjectToCommand(cmd *cobra.Command) {
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if !f.Changed && l.viper.IsSet(f.Name) {
-			cmd.Flags().Set(f.Name, l.viper.GetString(f.Name))
+		if f.Changed || !l.viper.InConfig(f.Name) {
+			return
 		}
+		if sv, ok := f.Value.(pflag.SliceValue); ok {
+			_ = sv.Replace(l.viper.GetStringSlice(f.Name))
+			return
+		}
+		cmd.Flags().Set(f.Name, l.viper.GetString(f.Name))
 	})
 }
 

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mitchellh/go-homedir"
@@ -92,10 +93,18 @@ func TestLoader_BindFlag(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// loaderWithConfig returns a loader that has read the given YAML as its config file
+func loaderWithConfig(t *testing.T, yaml string) *Loader {
+	t.Helper()
+	loader := NewLoader()
+	loader.viper.SetConfigType("yaml")
+	require.NoError(t, loader.viper.ReadConfig(strings.NewReader(yaml)))
+	return loader
+}
+
 func TestLoader_InjectToCommand(t *testing.T) {
 	t.Run("injects config value to unchanged flag", func(t *testing.T) {
-		loader := NewLoader()
-		loader.SetDefault("inject-flag", "config-value")
+		loader := loaderWithConfig(t, "inject-flag: config-value\n")
 
 		cmd := &cobra.Command{}
 		cmd.Flags().String("inject-flag", "default", "test flag")
@@ -108,8 +117,7 @@ func TestLoader_InjectToCommand(t *testing.T) {
 	})
 
 	t.Run("does not override changed flag", func(t *testing.T) {
-		loader := NewLoader()
-		loader.SetDefault("override-flag", "config-value")
+		loader := loaderWithConfig(t, "override-flag: config-value\n")
 
 		cmd := &cobra.Command{}
 		cmd.Flags().String("override-flag", "default", "test flag")
@@ -124,9 +132,7 @@ func TestLoader_InjectToCommand(t *testing.T) {
 	})
 
 	t.Run("handles multiple flags", func(t *testing.T) {
-		loader := NewLoader()
-		loader.SetDefault("flag1", "value1")
-		loader.SetDefault("flag2", "value2")
+		loader := loaderWithConfig(t, "flag1: value1\nflag2: value2\n")
 
 		cmd := &cobra.Command{}
 		cmd.Flags().String("flag1", "default1", "test flag 1")
@@ -139,6 +145,37 @@ func TestLoader_InjectToCommand(t *testing.T) {
 
 		assert.Equal(t, "value1", result1)
 		assert.Equal(t, "value2", result2)
+	})
+
+	t.Run("injects slice flags as lists", func(t *testing.T) {
+		loader := loaderWithConfig(t, "include:\n  - a-*\n  - b-*\n")
+
+		cmd := &cobra.Command{}
+		cmd.Flags().StringSlice("include", nil, "test slice flag")
+
+		loader.InjectToCommand(cmd)
+
+		result, _ := cmd.Flags().GetStringSlice("include")
+		assert.Equal(t, []string{"a-*", "b-*"}, result)
+	})
+
+	t.Run("ignores env vars that match flag names", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
+		t.Setenv("USER", "env-user")
+		configPath := filepath.Join(tmpDir, DefaultConfigFileName+"."+DefaultConfigFileType)
+		require.NoError(t, os.WriteFile(configPath, []byte("verbose: false\n"), 0600))
+
+		loader := NewLoader()
+		require.NoError(t, loader.Initialize())
+
+		cmd := &cobra.Command{}
+		cmd.Flags().String("user", "", "test flag")
+
+		loader.InjectToCommand(cmd)
+
+		result, _ := cmd.Flags().GetString("user")
+		assert.Empty(t, result)
 	})
 }
 
