@@ -124,6 +124,9 @@ type App struct {
 
 	// Restart flag - set when TUI should restart after clean quit
 	restartAfterQuit bool
+
+	// noUpdate turns off all update checks (--no-update / GITHUBBY_NO_UPDATE)
+	noUpdate bool
 }
 
 // AppOption configures the App
@@ -166,6 +169,18 @@ func WithVersion(version, commit, buildDate string) AppOption {
 		a.commit = commit
 		a.buildDate = buildDate
 	}
+}
+
+// WithNoUpdate turns off the startup and background update checks
+func WithNoUpdate(off bool) AppOption {
+	return func(a *App) {
+		a.noUpdate = off
+	}
+}
+
+// updatesEnabled reports whether this build should check for updates at all
+func (a *App) updatesEnabled() bool {
+	return !a.noUpdate && !update.IsDev(a.version)
 }
 
 // NewApp creates a new TUI application
@@ -321,7 +336,7 @@ func (a *App) Height() int {
 // Init initializes the app
 func (a *App) Init() tea.Cmd {
 	// For non-dev builds, start with blocking startup update check
-	if !update.IsDev(a.version) {
+	if a.updatesEnabled() {
 		a.startupUpdatePhase = UpdatePhaseChecking
 		return a.checkForStartupUpdateCmd()
 	}
@@ -398,8 +413,8 @@ func (a *App) delayedRestartCmd(elapsed time.Duration) tea.Cmd {
 
 // checkForUpdateCmd returns a command that checks for updates in the background
 func (a *App) checkForUpdateCmd() tea.Cmd {
-	// Skip for dev builds
-	if update.IsDev(a.version) {
+	// Skip for dev builds or when updates are turned off
+	if !a.updatesEnabled() {
 		return nil
 	}
 

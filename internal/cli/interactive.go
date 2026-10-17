@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -66,6 +67,7 @@ func RunTUI() error {
 		tui.WithContext(ctx),
 		tui.WithStorage(storage),
 		tui.WithVersion(Version, Commit, BuildDate),
+		tui.WithNoUpdate(updateDisabled(os.Args[1:])),
 	}
 
 	// Check authentication status
