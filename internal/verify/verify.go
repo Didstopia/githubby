@@ -56,6 +56,8 @@ type Report struct {
 	Corrupt  []string `json:"corrupt"`
 	Stale    []string `json:"stale"`
 	LFS      []string `json:"lfs"`
+	// Submodules not checked out at the recorded commit, or failing git fsck
+	Submodules []string `json:"submodules"`
 	Metadata []string `json:"metadata"`
 	// Errors are checks that could not run; each one fails the backup
 	Errors []string `json:"errors"`
@@ -65,7 +67,7 @@ func newReport(target string, checks []string) *Report {
 	return &Report{
 		Time: time.Now().UTC(), Target: target, Checks: checks, Items: []string{},
 		Missing: []string{}, Corrupt: []string{}, Stale: []string{},
-		LFS: []string{}, Metadata: []string{}, Errors: []string{},
+		LFS: []string{}, Submodules: []string{}, Metadata: []string{}, Errors: []string{},
 	}
 }
 
@@ -75,7 +77,7 @@ func (r *Report) errorf(format string, args ...any) {
 
 // Problems counts every entry that makes the backup not OK
 func (r *Report) Problems() int {
-	return len(r.Missing) + len(r.Corrupt) + len(r.Stale) + len(r.LFS) + len(r.Metadata) + len(r.Errors)
+	return len(r.Missing) + len(r.Corrupt) + len(r.Stale) + len(r.LFS) + len(r.Submodules) + len(r.Metadata) + len(r.Errors)
 }
 
 // Verifier runs the checks
@@ -94,7 +96,7 @@ func New(client github.Client, g *git.Git, opts *Options) *Verifier {
 // Run checks the backup and writes the report to <target>/verify-report.json.
 // The report is returned even when the backup is not OK.
 func (v *Verifier) Run(ctx context.Context) (*Report, error) {
-	checks := []string{"repos exist", "git fsck", "branch heads match GitHub", "pull request refs match GitHub", "LFS objects", "wikis"}
+	checks := []string{"repos exist", "git fsck", "branch heads match GitHub", "pull request refs match GitHub", "LFS objects", "submodules", "wikis"}
 	if v.opts.Gists {
 		checks = append(checks, "gists")
 	}
@@ -167,6 +169,9 @@ func (v *Verifier) checkRepo(ctx context.Context, repo *gh.Repository, rep *Repo
 	if v.checkGitCopy(ctx, full, local, repo.GetCloneURL(), true, rep) {
 		v.checkPullRefs(ctx, full, local, repo.GetCloneURL(), rep)
 	}
+	if v.git.IsGitRepo(local) {
+		v.checkSubmodules(ctx, full, local, rep)
+	}
 
 	if repo.GetHasWiki() {
 		v.checkWiki(ctx, repo, rep)
@@ -236,6 +241,33 @@ func (v *Verifier) checkPullRefs(ctx context.Context, name, local, url string, r
 			rep.Stale = append(rep.Stale, fmt.Sprintf("%s: pull request #%s missing locally", name, n))
 		case got != sha:
 			rep.Stale = append(rep.Stale, fmt.Sprintf("%s: pull request #%s is at %s locally, %s on GitHub", name, n, short(got), short(sha)))
+		}
+	}
+}
+
+// checkSubmodules checks that every submodule the checked-out commit records (nested
+// ones too) is checked out at that commit and passes git fsck. A submodule sync could
+// not fetch is not in the backup at all, so it fails here.
+func (v *Verifier) checkSubmodules(ctx context.Context, name, local string, rep *Report) {
+	subs, err := v.git.SubmoduleStatus(ctx, local)
+	if err != nil {
+		rep.errorf("%s: can't read submodule status: %v", name, err)
+		return
+	}
+	for _, sub := range subs {
+		switch sub.State {
+		case ' ':
+			if err := v.git.Fsck(ctx, filepath.Join(local, sub.Path)); err != nil {
+				rep.Submodules = append(rep.Submodules, fmt.Sprintf("%s: submodule %s fails git fsck: %v", name, sub.Path, err))
+			}
+		case '-':
+			rep.Submodules = append(rep.Submodules, fmt.Sprintf(
+				"%s: submodule %s is not checked out: commit %s could not be fetched, its repo or that commit may be gone upstream",
+				name, sub.Path, short(sub.SHA)))
+		case '+':
+			rep.Submodules = append(rep.Submodules, fmt.Sprintf("%s: submodule %s is not at commit %s the repo records", name, sub.Path, short(sub.SHA)))
+		default:
+			rep.Submodules = append(rep.Submodules, fmt.Sprintf("%s: submodule %s has merge conflicts", name, sub.Path))
 		}
 	}
 }
@@ -393,7 +425,7 @@ func (v *Verifier) writeReport(rep *Report) error {
 }
 
 func sortAll(rep *Report) {
-	for _, list := range [][]string{rep.Items, rep.Missing, rep.Corrupt, rep.Stale, rep.LFS, rep.Metadata, rep.Errors} {
+	for _, list := range [][]string{rep.Items, rep.Missing, rep.Corrupt, rep.Stale, rep.LFS, rep.Submodules, rep.Metadata, rep.Errors} {
 		sort.Strings(list)
 	}
 }

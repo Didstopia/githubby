@@ -31,7 +31,7 @@ var verifyCmd = &cobra.Command{
 
 Every repo (private ones too), wiki and gist GitHub lists must exist locally,
 pass git fsck, have every branch at the same commit as on GitHub, and have all
-its LFS objects. With --metadata, the issue and pull request counts must match.
+its LFS objects and submodules. With --metadata, the issue and pull request counts must match.
 
 A check that can't run counts as a failure. The exit code is 0 only when
 everything is clean. A report is written to <target>/verify-report.json.
@@ -125,6 +125,7 @@ func printVerifySummary(rep *verify.Report) {
 		{"Corrupt (git fsck)", rep.Corrupt},
 		{"Stale branches", rep.Stale},
 		{"Missing LFS objects", rep.LFS},
+		{"Submodule problems", rep.Submodules},
 		{"Metadata problems", rep.Metadata},
 		{"Checks that could not run", rep.Errors},
 	}

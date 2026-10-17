@@ -93,7 +93,7 @@ func (f *fixture) addGist(id string) string {
 
 // backup runs a real sync of everything into the target, plus a metadata stand-in
 func (f *fixture) backup() {
-	s := sync.New(f.api, f.git, &sync.Options{Target: f.target, Wikis: true, LFSAll: true, PullRefs: true})
+	s := sync.New(f.api, f.git, &sync.Options{Target: f.target, Wikis: true, LFSAll: true, PullRefs: true, Submodules: true})
 	result, err := s.SyncRepos(context.Background(), f.repos)
 	require.NoError(f.t, err)
 	require.Empty(f.t, result.Failed)
@@ -394,4 +394,51 @@ func TestVerify_Releases(t *testing.T) {
 	rep = f.verify(Options{Metadata: true})
 	assert.False(t, rep.OK)
 	assert.Contains(t, strings.Join(rep.Errors, "\n"), "can't list releases on GitHub")
+}
+
+func TestVerify_Submodules(t *testing.T) {
+	needLFS(t)
+	f := newFixture(t)
+	child := upstream(t, filepath.Join(t.TempDir(), "child"))
+	gone := upstream(t, filepath.Join(t.TempDir(), "gone"))
+	dir := f.addRepo("tool", false)
+	runGit(t, "-C", dir, "submodule", "add", "-q", child, "lib/child")
+	runGit(t, "-C", dir, "commit", "-q", "-m", "add child")
+	f.backup()
+
+	assert.True(t, f.verify(Options{}).OK, "sync checked out the submodule")
+	assert.Contains(t, f.verify(Options{}).Checks, "submodules")
+
+	// Moved off the recorded commit
+	sub := filepath.Join(f.target, "Didstopia", "tool", "lib", "child")
+	runGit(t, "-C", sub, "commit", "-q", "--allow-empty", "-m", "local change")
+	rep := f.verify(Options{})
+	assert.False(t, rep.OK)
+	require.Len(t, rep.Submodules, 1)
+	assert.Contains(t, rep.Submodules[0], "Didstopia/tool: submodule lib/child is not at commit")
+
+	// Its object store goes bad
+	runGit(t, "-C", sub, "checkout", "-q", "HEAD~1")
+	tree := runGit(t, "-C", sub, "rev-parse", "HEAD^{tree}")
+	gitDir := runGit(t, "-C", sub, "rev-parse", "--absolute-git-dir")
+	obj := filepath.Join(gitDir, "objects", tree[:2], tree[2:])
+	// Local clones hardlink objects, so replace the file instead of writing through to upstream
+	require.NoError(t, os.Remove(obj))
+	require.NoError(t, os.WriteFile(obj, []byte("garbage"), 0644))
+	rep = f.verify(Options{})
+	require.Len(t, rep.Submodules, 1)
+	assert.Contains(t, rep.Submodules[0], "submodule lib/child fails git fsck")
+
+	// A submodule whose repo was deleted upstream never got backed up
+	runGit(t, "-C", dir, "submodule", "add", "-q", gone, "lib/gone")
+	runGit(t, "-C", dir, "commit", "-q", "-m", "add gone")
+	require.NoError(t, os.RemoveAll(gone))
+	f2 := newFixture(t)
+	f2.repos = f.repos
+	f2.backup()
+	rep = f2.verify(Options{})
+	assert.False(t, rep.OK)
+	require.Len(t, rep.Submodules, 1)
+	assert.Contains(t, rep.Submodules[0], "Didstopia/tool: submodule lib/gone is not checked out")
+	assert.Contains(t, rep.Submodules[0], "gone upstream")
 }

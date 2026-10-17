@@ -234,6 +234,8 @@ githubby verify --all-orgs --gists --metadata --target ~/backup
 - every branch on GitHub exists locally at the same commit
 - every pull request head (`refs/pull/<n>/head`) on GitHub exists locally at the same commit
 - every Git LFS object in the history is present locally with the right content (needs `git-lfs`)
+- every submodule (nested ones too) is checked out at the commit the repo records and passes
+  `git fsck`; a submodule whose repo was deleted upstream can't be backed up, and fails here
 - with `--metadata`: the metadata directory exists and the issue and pull request counts match GitHub
 - with `--metadata`: `releases.json` holds as many releases as GitHub has, and every release asset
   is saved with the same size as on GitHub

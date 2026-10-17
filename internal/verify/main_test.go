@@ -14,7 +14,7 @@ func TestMain(m *testing.M) {
 	}
 
 	cfg := filepath.Join(dir, "gitconfig")
-	body := "[user]\n\temail = test@example.com\n\tname = Test\n[init]\n\tdefaultBranch = main\n"
+	body := "[protocol \"file\"]\n\tallow = always\n[user]\n\temail = test@example.com\n\tname = Test\n[init]\n\tdefaultBranch = main\n"
 	if err := os.WriteFile(cfg, []byte(body), 0600); err != nil {
 		panic(err)
 	}

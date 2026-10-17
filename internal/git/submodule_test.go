@@ -76,3 +76,51 @@ func TestSubmoduleUpdate_FailureWrapsError(t *testing.T) {
 	err = g.SubmoduleUpdate(context.Background(), repo)
 	assert.ErrorIs(t, err, ErrSubmoduleFailed)
 }
+
+func TestSubmoduleStatus(t *testing.T) {
+	g, err := NewQuiet()
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'protocol.file.allow'='always'")
+
+	inner := newUpstream(t, map[string]string{"inner.txt": "inner"})
+	child := newUpstream(t, map[string]string{"child.txt": "child"})
+	runGit(t, "-C", child, "submodule", "add", "-q", inner, "deep")
+	runGit(t, "-C", child, "commit", "-q", "-m", "add inner")
+	other := newUpstream(t, map[string]string{"o.txt": "o"})
+	parent := newUpstream(t, map[string]string{"README": "parent"})
+	runGit(t, "-C", parent, "submodule", "add", "-q", child, "lib/my child")
+	runGit(t, "-C", parent, "submodule", "add", "-q", other, "other")
+	runGit(t, "-C", parent, "commit", "-q", "-m", "add submodules")
+	childSHA := runGit(t, "-C", child, "rev-parse", "HEAD")
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	require.NoError(t, g.Clone(ctx, parent, clone))
+	subs, err := g.SubmoduleStatus(ctx, clone)
+	require.NoError(t, err)
+	require.Len(t, subs, 2, "nested ones are unknown until the parent is checked out")
+	assert.Equal(t, Submodule{Path: "lib/my child", SHA: childSHA, State: '-'}, subs[0])
+
+	require.NoError(t, g.SubmoduleUpdate(ctx, clone))
+	runGit(t, "-C", filepath.Join(clone, "other"), "commit", "-q", "--allow-empty", "-m", "moved")
+	subs, err = g.SubmoduleStatus(ctx, clone)
+	require.NoError(t, err)
+	require.Len(t, subs, 3)
+	states := map[string]byte{}
+	for _, s := range subs {
+		states[s.Path] = s.State
+	}
+	assert.Equal(t, map[string]byte{"lib/my child": ' ', "lib/my child/deep": ' ', "other": '+'}, states)
+
+	// No .gitmodules, no submodules
+	subs, err = g.SubmoduleStatus(ctx, filepath.Join(child, "deep"))
+	require.NoError(t, err)
+	assert.Empty(t, subs)
+
+	bad := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bad, ".gitmodules"), nil, 0644))
+	_, err = g.SubmoduleStatus(ctx, bad)
+	assert.ErrorIs(t, err, ErrSubmoduleStatusFailed)
+}
