@@ -79,6 +79,10 @@ type Options struct {
 	// LFSAll downloads the LFS objects of every ref after each clone or fetch,
 	// not just those of the checked-out branch
 	LFSAll bool
+
+	// PullRefs fetches every pull request head into refs/pull/<n>/head after each sync,
+	// so commits of fork and deleted branches are kept too
+	PullRefs bool
 }
 
 // Result represents the result of a sync operation
@@ -469,6 +473,16 @@ func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath s
 	if s.opts.Submodules {
 		if err := s.git.SubmoduleUpdate(ctx, localPath); err != nil {
 			result.warn(repo.GetFullName(), "submodules: %v", err)
+		}
+	}
+
+	// Pull requests from forks don't change pushed_at, so this runs even when fast sync skipped the fetch
+	if s.opts.PullRefs {
+		err := withGitRetry(ctx, DefaultGitRetryConfig(),
+			func() error { return s.git.FetchPullRefs(ctx, localPath) },
+			nil, isTransientGitError)
+		if err != nil {
+			result.warn(repo.GetFullName(), "pull request refs: %v", err)
 		}
 	}
 

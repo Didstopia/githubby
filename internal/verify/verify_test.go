@@ -93,7 +93,7 @@ func (f *fixture) addGist(id string) string {
 
 // backup runs a real sync of everything into the target, plus a metadata stand-in
 func (f *fixture) backup() {
-	s := sync.New(f.api, f.git, &sync.Options{Target: f.target, Wikis: true, LFSAll: true})
+	s := sync.New(f.api, f.git, &sync.Options{Target: f.target, Wikis: true, LFSAll: true, PullRefs: true})
 	result, err := s.SyncRepos(context.Background(), f.repos)
 	require.NoError(f.t, err)
 	require.Empty(f.t, result.Failed)
@@ -317,4 +317,26 @@ func TestStaleBranchesAndShort(t *testing.T) {
 	assert.Empty(t, staleBranches("r", map[string]string{"main": "a"}, map[string]string{"main": "a", "old": "b"}))
 	assert.Equal(t, "abc", short("abc"))
 	assert.Equal(t, "0123456789ab", short("0123456789abcdef"))
+}
+
+func TestVerify_PullRefs(t *testing.T) {
+	needLFS(t)
+	f := newFixture(t)
+	dir := f.addRepo("tool", false)
+	runGit(t, "-C", dir, "update-ref", "refs/pull/1/head", "HEAD")
+	f.backup()
+	assert.True(t, f.verify(Options{}).OK, "sync fetched the pull request ref")
+
+	// A pull request from a deleted fork branch shows up, and #1 moves on
+	commit(t, dir, "fork.txt", "fork")
+	runGit(t, "-C", dir, "update-ref", "refs/pull/1/head", "HEAD")
+	runGit(t, "-C", dir, "update-ref", "refs/pull/2/head", "HEAD")
+	runGit(t, "-C", dir, "reset", "-q", "--hard", "HEAD~1")
+
+	rep := f.verify(Options{})
+	assert.False(t, rep.OK)
+	got := strings.Join(rep.Stale, "\n")
+	assert.Contains(t, got, "Didstopia/tool: pull request #2 missing locally")
+	assert.Contains(t, got, "Didstopia/tool: pull request #1 is at")
+	assert.Len(t, rep.Stale, 2)
 }

@@ -172,8 +172,9 @@ githubby sync --user <username> --target ~/repos --dry-run
 githubby sync --user <username> --target ~/repos --verbose
 ```
 
-CLI sync also checks out submodules, clones each repo's wiki next to it (`<repo>.wiki`), and
-fetches the Git LFS objects of every branch. It exits with a non-zero code if anything failed.
+CLI sync also checks out submodules, clones each repo's wiki next to it (`<repo>.wiki`), fetches
+the Git LFS objects of every branch, and fetches the head of every pull request into
+`refs/pull/<n>/head`, so commits from forks and deleted branches are kept too. It exits with a non-zero code if anything failed.
 
 ### Full Backup
 
@@ -193,7 +194,7 @@ Layout of the target directory:
 
 ```
 backup/
-├── <owner>/<repo>/              # git clone, all branches, submodules, LFS objects
+├── <owner>/<repo>/              # git clone, all branches, pull request heads, submodules, LFS objects
 ├── <owner>/<repo>.wiki/         # the wiki, if the repo has one
 ├── <owner>/<repo>.meta/         # --metadata
 │   ├── issues.json              # all issues with comments
@@ -231,6 +232,7 @@ githubby verify --all-orgs --gists --metadata --target ~/backup
 - every repository (private ones always included), wiki and gist on GitHub exists locally
 - `git fsck` passes for each of them
 - every branch on GitHub exists locally at the same commit
+- every pull request head (`refs/pull/<n>/head`) on GitHub exists locally at the same commit
 - every Git LFS object in the history is present locally with the right content (needs `git-lfs`)
 - with `--metadata`: the metadata directory exists and the issue and pull request counts match GitHub
 

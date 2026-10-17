@@ -122,3 +122,45 @@ func TestMissingLFSObjects(t *testing.T) {
 	_, err = lfs.MissingLFSObjects(ctx, filepath.Join(t.TempDir(), "nope"))
 	assert.ErrorIs(t, err, ErrLFSListFailed)
 }
+
+func TestPullRefs(t *testing.T) {
+	g, err := NewQuiet()
+	if err != nil {
+		t.Skip("git not installed")
+	}
+	ctx := context.Background()
+
+	up := newUpstream(t, map[string]string{"a": "a"})
+	runGit(t, "-C", up, "checkout", "-q", "-b", "gone")
+	runGit(t, "-C", up, "commit", "-q", "--allow-empty", "-m", "only on a deleted branch")
+	pr := runGit(t, "-C", up, "rev-parse", "HEAD")
+	runGit(t, "-C", up, "checkout", "-q", "main")
+	runGit(t, "-C", up, "branch", "-q", "-D", "gone")
+	runGit(t, "-C", up, "update-ref", "refs/pull/7/head", pr)
+	runGit(t, "-C", up, "update-ref", "refs/pull/7/merge", pr)
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	require.NoError(t, g.Clone(ctx, up, clone))
+	local, err := g.PullRefs(ctx, clone)
+	require.NoError(t, err)
+	assert.Empty(t, local, "a plain clone has no pull refs")
+
+	require.NoError(t, g.FetchPullRefs(ctx, clone))
+	remote, err := g.LsRemotePulls(ctx, up)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"7": pr}, remote, "merge refs are left out")
+	local, err = g.PullRefs(ctx, clone)
+	require.NoError(t, err)
+	assert.Equal(t, remote, local)
+	runGit(t, "-C", clone, "cat-file", "-e", pr)
+
+	// A repo without pull requests is fine
+	empty := filepath.Join(t.TempDir(), "empty")
+	require.NoError(t, g.Clone(ctx, newUpstream(t, map[string]string{"b": "b"}), empty))
+	require.NoError(t, g.FetchPullRefs(ctx, empty))
+
+	_, err = g.LsRemotePulls(ctx, filepath.Join(t.TempDir(), "missing"))
+	assert.ErrorIs(t, err, ErrLsRemoteFailed)
+	_, err = g.PullRefs(ctx, t.TempDir())
+	assert.Error(t, err)
+}

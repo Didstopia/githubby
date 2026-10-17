@@ -94,7 +94,7 @@ func New(client github.Client, g *git.Git, opts *Options) *Verifier {
 // Run checks the backup and writes the report to <target>/verify-report.json.
 // The report is returned even when the backup is not OK.
 func (v *Verifier) Run(ctx context.Context) (*Report, error) {
-	checks := []string{"repos exist", "git fsck", "branch heads match GitHub", "LFS objects", "wikis"}
+	checks := []string{"repos exist", "git fsck", "branch heads match GitHub", "pull request refs match GitHub", "LFS objects", "wikis"}
 	if v.opts.Gists {
 		checks = append(checks, "gists")
 	}
@@ -164,7 +164,9 @@ func (v *Verifier) checkRepo(ctx context.Context, repo *gh.Repository, rep *Repo
 	owner, name, full := repo.GetOwner().GetLogin(), repo.GetName(), repo.GetFullName()
 	local := filepath.Join(v.opts.Target, owner, name)
 
-	v.checkGitCopy(ctx, full, local, repo.GetCloneURL(), true, rep)
+	if v.checkGitCopy(ctx, full, local, repo.GetCloneURL(), true, rep) {
+		v.checkPullRefs(ctx, full, local, repo.GetCloneURL(), rep)
+	}
 
 	if repo.GetHasWiki() {
 		v.checkWiki(ctx, repo, rep)
@@ -176,14 +178,15 @@ func (v *Verifier) checkRepo(ctx context.Context, repo *gh.Repository, rep *Repo
 }
 
 // checkGitCopy checks that a local clone exists, is not corrupt, has every remote
-// branch at the same head, and (withLFS) has all its LFS objects
-func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, withLFS bool, rep *Report) {
+// branch at the same head, and (withLFS) has all its LFS objects. It returns true when
+// the local copy exists and GitHub could be reached, so further checks make sense.
+func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, withLFS bool, rep *Report) bool {
 	rep.Checked++
 	rep.Items = append(rep.Items, name)
 
 	if !v.git.IsGitRepo(local) {
 		rep.Missing = append(rep.Missing, name)
-		return
+		return false
 	}
 
 	if err := v.git.Fsck(ctx, local); err != nil {
@@ -191,6 +194,7 @@ func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, wi
 	}
 
 	remote, err := v.git.LsRemoteHeads(ctx, url)
+	reachable := err == nil
 	if err != nil {
 		rep.errorf("%s: can't list branches on GitHub: %v", name, err)
 	} else if localHeads, err := v.git.RemoteBranches(ctx, local); err != nil {
@@ -200,15 +204,39 @@ func (v *Verifier) checkGitCopy(ctx context.Context, name, local, url string, wi
 	}
 
 	if !withLFS {
-		return
+		return reachable
 	}
 	missing, err := v.lfs.MissingLFSObjects(ctx, local)
 	if err != nil {
 		rep.errorf("%s: can't check LFS objects: %v", name, err)
-		return
+		return reachable
 	}
 	for _, m := range missing {
 		rep.LFS = append(rep.LFS, name+": "+m)
+	}
+	return reachable
+}
+
+// checkPullRefs checks that every pull request head on GitHub is kept locally at the same commit
+func (v *Verifier) checkPullRefs(ctx context.Context, name, local, url string, rep *Report) {
+	remote, err := v.git.LsRemotePulls(ctx, url)
+	if err != nil {
+		rep.errorf("%s: can't list pull request refs on GitHub: %v", name, err)
+		return
+	}
+	localRefs, err := v.git.PullRefs(ctx, local)
+	if err != nil {
+		rep.errorf("%s: can't read local pull request refs: %v", name, err)
+		return
+	}
+	for n, sha := range remote {
+		got, ok := localRefs[n]
+		switch {
+		case !ok:
+			rep.Stale = append(rep.Stale, fmt.Sprintf("%s: pull request #%s missing locally", name, n))
+		case got != sha:
+			rep.Stale = append(rep.Stale, fmt.Sprintf("%s: pull request #%s is at %s locally, %s on GitHub", name, n, short(got), short(sha)))
+		}
 	}
 }
 

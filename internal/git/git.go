@@ -224,6 +224,16 @@ func (g *Git) FetchAll(ctx context.Context, repoDir string) error {
 	return nil
 }
 
+// PullRefSpec maps GitHub's pull request heads to the same names locally
+const PullRefSpec = "+refs/pull/*/head:refs/pull/*/head"
+
+// FetchPullRefs fetches the head commit of every pull request into refs/pull/<n>/head.
+// These keep commits of fork and deleted branches. They are never pruned.
+// FETCH_HEAD is left alone, since fast sync reads its time as the last full fetch.
+func (g *Git) FetchPullRefs(ctx context.Context, repoDir string) error {
+	return g.run(ctx, g.authEnv(), ErrFetchFailed, "-C", repoDir, "fetch", "--no-tags", "--no-write-fetch-head", "origin", PullRefSpec)
+}
+
 // GetHEAD returns the SHA of HEAD in the repository
 func (g *Git) GetHEAD(ctx context.Context, repoDir string) (string, error) {
 	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "rev-parse", "HEAD")

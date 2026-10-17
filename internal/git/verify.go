@@ -52,6 +52,37 @@ func (g *Git) LsRemoteHeads(ctx context.Context, url string) (map[string]string,
 	return heads, nil
 }
 
+// LsRemotePulls returns pull request number -> head SHA as the remote has them
+func (g *Git) LsRemotePulls(ctx context.Context, url string) (map[string]string, error) {
+	out, err := g.output(ctx, g.authEnv(), ErrLsRemoteFailed, "ls-remote", url, "refs/pull/*/head")
+	if err != nil {
+		return nil, err
+	}
+	return pullHeads(out, "\t"), nil
+}
+
+// PullRefs returns pull request number -> SHA of the local refs/pull/*/head refs
+func (g *Git) PullRefs(ctx context.Context, repoDir string) (map[string]string, error) {
+	out, err := g.output(ctx, nil, ErrNotAGitRepo, "-C", repoDir, "for-each-ref", "--format=%(objectname) %(refname)", "refs/pull/")
+	if err != nil {
+		return nil, err
+	}
+	return pullHeads(out, " "), nil
+}
+
+// pullHeads parses "<sha><sep>refs/pull/<n>/head" lines
+func pullHeads(out, sep string) map[string]string {
+	pulls := make(map[string]string)
+	for _, line := range strings.Split(out, "\n") {
+		sha, ref, ok := strings.Cut(strings.TrimSpace(line), sep)
+		if !ok || !strings.HasPrefix(ref, "refs/pull/") || !strings.HasSuffix(ref, "/head") {
+			continue
+		}
+		pulls[strings.TrimSuffix(strings.TrimPrefix(ref, "refs/pull/"), "/head")] = sha
+	}
+	return pulls
+}
+
 // RemoteBranches returns branch name -> SHA of the local origin/* remote-tracking refs
 func (g *Git) RemoteBranches(ctx context.Context, repoDir string) (map[string]string, error) {
 	out, err := g.output(ctx, nil, ErrNotAGitRepo, "-C", repoDir, "for-each-ref", "--format=%(objectname) %(refname)", "refs/remotes/origin/")
