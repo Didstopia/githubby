@@ -299,6 +299,31 @@ func TestExportRepo_RulesetOnlyBranchIsNotAFailure(t *testing.T) {
 	assert.Empty(t, protection)
 }
 
+// GitHub answers 404 on the comment and pull listings when issues and pull requests are off
+func TestExportRepo_IssuesAndPullsTurnedOff(t *testing.T) {
+	e, target, _ := newTestExporter(t)
+	registerRepo()
+	notFound := httpmock.NewJsonResponderOrPanic(404, map[string]any{"message": "Not Found"})
+	httpmock.RegisterResponder("GET", api+"/issues", json200([]map[string]any{}))
+	httpmock.RegisterResponder("GET", api+"/issues/comments", notFound)
+	httpmock.RegisterResponder("GET", api+"/pulls", notFound)
+
+	rep := NewReport()
+	e.ExportRepo(context.Background(), testRepo(false), rep)
+	require.Empty(t, rep.Failed)
+	for _, w := range rep.Warnings {
+		assert.NotContains(t, w, IssuesFile)
+		assert.NotContains(t, w, PullsFile)
+	}
+
+	var issues []IssueExport
+	readJSON(t, filepath.Join(RepoDir(target, "owner", "repo"), IssuesFile), &issues)
+	assert.Empty(t, issues)
+	var pulls []PullExport
+	readJSON(t, filepath.Join(RepoDir(target, "owner", "repo"), PullsFile), &pulls)
+	assert.Empty(t, pulls)
+}
+
 func TestExportRepo_RetriesBadGateway(t *testing.T) {
 	e, _, waits := newTestExporter(t)
 	registerRepo()

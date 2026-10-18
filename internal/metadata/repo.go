@@ -186,6 +186,10 @@ func (e *Exporter) issues(ctx context.Context, owner, name string, comments func
 	if err != nil {
 		return nil, err
 	}
+	// With issues off the list can be empty while the comments listing is a 404
+	if len(list) == 0 {
+		return []IssueExport{}, nil
+	}
 
 	byNumber, err := comments(ctx)
 	if err != nil {
@@ -202,13 +206,20 @@ func (e *Exporter) issues(ctx context.Context, owner, name string, comments func
 	return out, nil
 }
 
-// pulls returns every pull request with its comments, review comments and reviews
+// pulls returns every pull request with its comments, review comments and reviews.
+// Pull requests turned off for the repo (404 on a repo we can read) give an empty list.
 func (e *Exporter) pulls(ctx context.Context, owner, name string, comments func(context.Context) (map[int][]*gh.IssueComment, error)) ([]PullExport, error) {
 	list, err := listAll(ctx, e, func(o gh.ListOptions) ([]*gh.PullRequest, *gh.Response, error) {
 		return e.gh.PullRequests.List(ctx, owner, name, &gh.PullRequestListOptions{State: "all", ListOptions: o})
 	})
+	if statusOf(err) == http.StatusNotFound {
+		return []PullExport{}, nil
+	}
 	if err != nil {
 		return nil, err
+	}
+	if len(list) == 0 {
+		return []PullExport{}, nil
 	}
 
 	byNumber, err := comments(ctx)
