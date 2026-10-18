@@ -44,11 +44,12 @@ func (g *Git) UpdateWorkTree(ctx context.Context, repoDir, branch string) (moved
 		if _, err := g.revParse(ctx, repoDir, "refs/heads/"+branch); err != nil {
 			args = []string{"-C", repoDir, "checkout", "-q", "-b", branch, "--track", "origin/" + branch}
 		}
-		if err := g.run(ctx, nil, ErrCheckoutFailed, args...); err != nil {
+		// The token is needed here too: the LFS filter downloads files during checkout
+		if err := g.run(ctx, g.authEnv(), ErrCheckoutFailed, args...); err != nil {
 			return false, err
 		}
 	}
-	if err := g.run(ctx, nil, ErrCheckoutFailed, "-C", repoDir, "merge", "-q", "--ff-only", "origin/"+branch); err != nil {
+	if err := g.run(ctx, g.authEnv(), ErrCheckoutFailed, "-C", repoDir, "merge", "-q", "--ff-only", "origin/"+branch); err != nil {
 		return !onBranch, err
 	}
 	return true, nil

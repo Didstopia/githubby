@@ -176,3 +176,21 @@ func TestLsRemoteDefaultBranch(t *testing.T) {
 	_, err = g.LsRemoteDefaultBranch(ctx, filepath.Join(t.TempDir(), "missing"))
 	assert.ErrorIs(t, err, ErrLsRemoteFailed)
 }
+
+// The LFS filter downloads files while the work tree moves, so it needs the token
+func TestUpdateWorkTree_FiltersGetTheToken(t *testing.T) {
+	up := newUpstream(t, map[string]string{".gitattributes": "b filter=probe\n"})
+	clone := cloneOf(t, up)
+	// Stands in for git-lfs: fails unless the auth header reaches it
+	runGit(t, "-C", clone, "config", "filter.probe.smudge", "git config --get http.https://github.com/.extraheader >/dev/null && cat")
+	runGit(t, "-C", clone, "config", "filter.probe.required", "true")
+	commitFile(t, up, "b", "b")
+
+	g := quietGit(t)
+	g.Token = "tok"
+	require.NoError(t, g.FetchAll(context.Background(), clone))
+	moved, err := g.UpdateWorkTree(context.Background(), clone, "main")
+	require.NoError(t, err)
+	assert.True(t, moved)
+	assert.FileExists(t, filepath.Join(clone, "b"))
+}
