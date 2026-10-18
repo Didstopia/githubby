@@ -257,6 +257,66 @@ func TestExportRepo_WaitsOutRateLimit(t *testing.T) {
 	assert.Len(t, *waits, 1)
 }
 
+// GitHub refuses page numbers past 100 on big issue lists, so the "after" cursor is followed
+func TestExportRepo_IssuesFollowTheCursor(t *testing.T) {
+	e, target, _ := newTestExporter(t)
+	registerRepo()
+	calls := 0
+	httpmock.RegisterResponder("GET", api+"/issues", func(req *http.Request) (*http.Response, error) {
+		if calls++; calls > 2 {
+			return httpmock.NewStringResponse(400, "cursor not followed"), nil
+		}
+		if req.URL.Query().Get("after") == "c1" {
+			return httpmock.NewJsonResponse(200, []map[string]any{{"number": 2, "title": "second"}})
+		}
+		resp, _ := httpmock.NewJsonResponse(200, []map[string]any{{"number": 1, "title": "first"}})
+		resp.Header.Set("Link", `<`+api+`/issues?state=all&after=c1>; rel="next"`)
+		return resp, nil
+	})
+
+	rep := NewReport()
+	e.ExportRepo(context.Background(), testRepo(false), rep)
+	require.Empty(t, rep.Failed)
+
+	var issues []IssueExport
+	readJSON(t, filepath.Join(RepoDir(target, "owner", "repo"), IssuesFile), &issues)
+	assert.Len(t, issues, 2)
+}
+
+// A branch protected only by a ruleset is listed as protected but has no classic protection
+func TestExportRepo_RulesetOnlyBranchIsNotAFailure(t *testing.T) {
+	e, target, _ := newTestExporter(t)
+	registerRepo()
+	httpmock.RegisterResponder("GET", api+"/branches/main/protection", httpmock.NewJsonResponderOrPanic(404,
+		map[string]any{"message": "Branch not protected"}))
+
+	rep := NewReport()
+	e.ExportRepo(context.Background(), testRepo(false), rep)
+	require.Empty(t, rep.Failed)
+
+	var protection map[string]any
+	readJSON(t, filepath.Join(RepoDir(target, "owner", "repo"), "branch-protection.json"), &protection)
+	assert.Empty(t, protection)
+}
+
+func TestExportRepo_RetriesBadGateway(t *testing.T) {
+	e, _, waits := newTestExporter(t)
+	registerRepo()
+	calls := 0
+	httpmock.RegisterResponder("GET", api+"/pulls/comments", func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return httpmock.NewStringResponse(502, `{"message":"Server Error"}`), nil
+		}
+		return httpmock.NewJsonResponse(200, []map[string]any{})
+	})
+
+	rep := NewReport()
+	e.ExportRepo(context.Background(), testRepo(false), rep)
+	assert.Empty(t, rep.Failed)
+	assert.Equal(t, []time.Duration{serverErrorWait}, *waits)
+}
+
 func TestExportRepo_CancelledContext(t *testing.T) {
 	e, _, _ := newTestExporter(t)
 	ctx, cancel := context.WithCancel(context.Background())

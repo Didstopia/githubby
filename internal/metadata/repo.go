@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -172,8 +173,12 @@ func (e *Exporter) ExportRepo(ctx context.Context, repo *gh.Repository, rep *Rep
 // issues returns every issue (not pull requests) with its comments.
 // Issues turned off for the repo (410 Gone) give an empty list.
 func (e *Exporter) issues(ctx context.Context, owner, name string, comments func(context.Context) (map[int][]*gh.IssueComment, error)) ([]IssueExport, error) {
-	list, err := listAll(ctx, e, func(o gh.ListOptions) ([]*gh.Issue, *gh.Response, error) {
-		return e.gh.Issues.ListByRepo(ctx, owner, name, &gh.IssueListByRepoOptions{State: "all", ListOptions: o})
+	list, err := listAllAfter(ctx, e, func(o gh.ListOptions, after string) ([]*gh.Issue, *gh.Response, error) {
+		return e.gh.Issues.ListByRepo(ctx, owner, name, &gh.IssueListByRepoOptions{
+			State:             "all",
+			ListOptions:       o,
+			ListCursorOptions: gh.ListCursorOptions{After: after},
+		})
 	})
 	if statusOf(err) == http.StatusGone {
 		return []IssueExport{}, nil
@@ -318,7 +323,8 @@ func (e *Exporter) downloadAsset(ctx context.Context, owner, name string, asset 
 	return os.Rename(tmp.Name(), path)
 }
 
-// branchProtection returns the protection settings of each protected branch
+// branchProtection returns the protection settings of each protected branch.
+// A branch protected only by a ruleset has no classic protection and is left out.
 func (e *Exporter) branchProtection(ctx context.Context, owner, name string) (map[string]*gh.Protection, error) {
 	branches, err := listAll(ctx, e, func(o gh.ListOptions) ([]*gh.Branch, *gh.Response, error) {
 		return e.gh.Repositories.ListBranches(ctx, owner, name, &gh.BranchListOptions{Protected: gh.Ptr(true), ListOptions: o})
@@ -335,6 +341,9 @@ func (e *Exporter) branchProtection(ctx context.Context, owner, name string) (ma
 			p, _, err = e.gh.Repositories.GetBranchProtection(ctx, owner, name, b.GetName())
 			return err
 		})
+		if errors.Is(err, gh.ErrBranchNotProtected) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("branch %s: %w", b.GetName(), err)
 		}

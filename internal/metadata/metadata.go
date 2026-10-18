@@ -20,6 +20,9 @@ import (
 // maxRateLimitWaits is how often one call may wait out a rate limit before giving up
 const maxRateLimitWaits = 5
 
+// serverErrorWait is the pause before retrying a call that got a 502, 503 or 504
+const serverErrorWait = 10 * time.Second
+
 // Exporter writes metadata JSON files under a target directory
 type Exporter struct {
 	gh       *gh.Client
@@ -193,6 +196,12 @@ func rateLimitWait(err error) (time.Duration, bool) {
 		return untilReset(gqlErr.Rate.Reset.Time), true
 	}
 
+	// GitHub sometimes times out on big lists; a retry usually gets through
+	switch statusOf(err) {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return serverErrorWait, true
+	}
+
 	return 0, false
 }
 
@@ -218,24 +227,34 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 
 // listAll pages through a go-github list call until the last page
 func listAll[T any](ctx context.Context, e *Exporter, list func(opts gh.ListOptions) ([]T, *gh.Response, error)) ([]T, error) {
+	return listAllAfter(ctx, e, func(opts gh.ListOptions, _ string) ([]T, *gh.Response, error) {
+		return list(opts)
+	})
+}
+
+// listAllAfter is listAll for endpoints that also page with an "after" cursor.
+// GitHub refuses page numbers past 100 there, so the cursor must be sent along.
+func listAllAfter[T any](ctx context.Context, e *Exporter, list func(opts gh.ListOptions, after string) ([]T, *gh.Response, error)) ([]T, error) {
 	all := make([]T, 0)
 	opts := gh.ListOptions{Page: 1, PerPage: 100}
+	after := ""
 	for {
 		var items []T
 		var resp *gh.Response
 		err := e.call(ctx, func() error {
 			var err error
-			items, resp, err = list(opts)
+			items, resp, err = list(opts, after)
 			return err
 		})
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, items...)
-		if resp == nil || resp.NextPage == 0 {
+		if resp == nil || (resp.NextPage == 0 && resp.After == "") {
 			return all, nil
 		}
 		opts.Page = resp.NextPage
+		after = resp.After
 	}
 }
 
