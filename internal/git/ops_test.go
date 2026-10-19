@@ -102,20 +102,20 @@ func TestScrubRemoteURL_Errors(t *testing.T) {
 	t.Run("no origin", func(t *testing.T) {
 		repo := t.TempDir()
 		runGit(t, "init", "-q", repo)
-		assert.Error(t, g.scrubRemoteURL(ctx, repo))
+		assert.Error(t, g.ScrubRemoteURL(ctx, repo))
 	})
 	t.Run("url without credentials is left alone", func(t *testing.T) {
 		repo := t.TempDir()
 		runGit(t, "init", "-q", repo)
 		runGit(t, "-C", repo, "remote", "add", "origin", "https://github.com/o/r.git")
-		require.NoError(t, g.scrubRemoteURL(ctx, repo))
+		require.NoError(t, g.ScrubRemoteURL(ctx, repo))
 		assert.Equal(t, "https://github.com/o/r.git", runGit(t, "-C", repo, "remote", "get-url", "origin"))
 	})
 	t.Run("local path remote is left alone", func(t *testing.T) {
 		repo := t.TempDir()
 		runGit(t, "init", "-q", repo)
 		runGit(t, "-C", repo, "remote", "add", "origin", "/some/path")
-		require.NoError(t, g.scrubRemoteURL(ctx, repo))
+		require.NoError(t, g.ScrubRemoteURL(ctx, repo))
 	})
 }
 

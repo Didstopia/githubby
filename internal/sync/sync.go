@@ -479,6 +479,9 @@ func IsRepoNotFound(err error) bool {
 // changed is false when fast sync found nothing new. Failures here are warnings:
 // the repo itself is safe, and verify catches missing LFS objects.
 func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath string, changed bool, result *Result) {
+	// Older versions saved the token in the origin URL; fetch removes it, but unchanged repos are never fetched
+	_ = s.git.ScrubRemoteURL(ctx, localPath)
+
 	// Runs even when fast sync skipped the fetch: an earlier run may have fetched without moving the checkout
 	if s.opts.UpdateWorkTree {
 		s.updateWorkTree(ctx, repo, localPath, result)

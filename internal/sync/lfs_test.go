@@ -114,3 +114,22 @@ func TestAfterSync_RetriesLFSUntilItSucceeds(t *testing.T) {
 	syncer.afterSync(context.Background(), localRepo("owner", "lfs", up), clone, false, result)
 	assert.NoFileExists(t, object)
 }
+
+// Unchanged repos skip the fetch, so the old token must be removed from the origin URL anyway
+func TestAfterSync_RemovesOldTokenFromOrigin(t *testing.T) {
+	g, err := git.NewQuiet()
+	require.NoError(t, err)
+
+	up := newUpstream(t, map[string]string{"a.txt": "a"})
+	target := t.TempDir()
+	syncer := New(github.NewMockClient(), g, &Options{Target: target})
+	_, err = syncer.SyncRepoWithData(context.Background(), localRepo("owner", "repo", up))
+	require.NoError(t, err)
+	clone := filepath.Join(target, "owner", "repo")
+	runGit(t, "-C", clone, "remote", "set-url", "origin", "https://oauth2:old-token@github.com/owner/repo.git")
+
+	result := NewResult()
+	syncer.afterSync(context.Background(), localRepo("owner", "repo", up), clone, false, result)
+	assert.Empty(t, result.Warnings)
+	assert.Equal(t, "https://github.com/owner/repo.git", strings.TrimSpace(runGit(t, "-C", clone, "remote", "get-url", "origin")))
+}

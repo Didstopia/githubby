@@ -340,7 +340,7 @@ func TestScrubRemoteURL(t *testing.T) {
 	require.NoError(t, exec.Command(g.GitPath, "init", repo).Run())
 	require.NoError(t, exec.Command(g.GitPath, "-C", repo, "remote", "add", "origin", "https://oauth2:old-token@github.com/owner/repo.git").Run())
 
-	require.NoError(t, g.scrubRemoteURL(ctx, repo))
+	require.NoError(t, g.ScrubRemoteURL(ctx, repo))
 
 	url, err := g.GetRemoteURL(ctx, repo)
 	require.NoError(t, err)

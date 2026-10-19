@@ -160,8 +160,8 @@ func (g *Git) run(ctx context.Context, env []string, base error, args ...string)
 	return nil
 }
 
-// scrubRemoteURL removes credentials that older versions embedded in the origin URL
-func (g *Git) scrubRemoteURL(ctx context.Context, repoDir string) error {
+// ScrubRemoteURL removes credentials that older versions embedded in the origin URL
+func (g *Git) ScrubRemoteURL(ctx context.Context, repoDir string) error {
 	remote, err := g.GetRemoteURL(ctx, repoDir)
 	if err != nil {
 		return err
@@ -201,7 +201,7 @@ func (g *Git) GetRemoteURL(ctx context.Context, repoDir string) (string, error) 
 // Use --prune to remove local references to branches deleted on remote.
 func (g *Git) FetchAll(ctx context.Context, repoDir string) error {
 	// Best effort: a stale token in the URL would override the fresh one
-	_ = g.scrubRemoteURL(ctx, repoDir)
+	_ = g.ScrubRemoteURL(ctx, repoDir)
 
 	cmd := exec.CommandContext(ctx, g.GitPath, "-C", repoDir, "fetch", "--all", "--prune")
 	cmd.Env = g.authEnv()
