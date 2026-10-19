@@ -500,16 +500,38 @@ func (s *Syncer) afterSync(ctx context.Context, repo *gh.Repository, localPath s
 		}
 	}
 
-	// Any repo may have LFS files on some branch, so this doesn't trust .gitattributes
-	if s.opts.LFSAll && changed {
+	// Any repo may have LFS files on some branch, so this doesn't trust .gitattributes.
+	// A download that failed or was cut short is retried on later runs, even with nothing new.
+	if s.opts.LFSAll && (changed || !lfsFetched(localPath)) {
 		switch {
 		case s.lfs.IsInstalled():
+			setLFSFetched(localPath, false)
 			if err := s.lfs.FetchAll(ctx, localPath); err != nil {
 				result.warn(repo.GetFullName(), "LFS: %v", err)
+			} else {
+				setLFSFetched(localPath, true)
 			}
 		case s.lfs.RepoUsesLFS(localPath):
 			result.warn(repo.GetFullName(), "LFS: %v", git.ErrLFSNotInstalled)
 		}
+	}
+}
+
+// lfsFetchedFile marks a repo whose last 'git lfs fetch --all' succeeded
+const lfsFetchedFile = "githubby-lfs-fetched"
+
+func lfsFetched(localPath string) bool {
+	_, err := os.Stat(filepath.Join(localPath, ".git", lfsFetchedFile))
+	return err == nil
+}
+
+// setLFSFetched sets or clears the marker; failing to write it only means one more fetch next run
+func setLFSFetched(localPath string, done bool) {
+	path := filepath.Join(localPath, ".git", lfsFetchedFile)
+	if done {
+		_ = os.WriteFile(path, nil, 0644)
+	} else {
+		_ = os.Remove(path)
 	}
 }
 

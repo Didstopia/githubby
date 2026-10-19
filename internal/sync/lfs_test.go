@@ -78,8 +78,39 @@ func TestAfterSync_LFSMissingIsWarning(t *testing.T) {
 	require.Len(t, result.Warnings, 1)
 	assert.Contains(t, result.Warnings[0], "git-lfs is not installed")
 
-	// Nothing new from fast sync: no LFS step at all
+	// Nothing new from fast sync, but the LFS files were never fetched: still a warning
 	result = NewResult()
 	syncer.afterSync(context.Background(), localRepo("owner", "lfs", ""), repoDir, false, result)
+	require.Len(t, result.Warnings, 1)
+	assert.Contains(t, result.Warnings[0], "git-lfs is not installed")
+}
+
+// An LFS download that never finished must be retried even when the repo has nothing new
+func TestAfterSync_RetriesLFSUntilItSucceeds(t *testing.T) {
+	if _, err := exec.LookPath("git-lfs"); err != nil {
+		t.Skip("git-lfs is not installed")
+	}
+	g, err := git.NewQuiet()
+	require.NoError(t, err)
+
+	up := lfsUpstream(t)
+	target := t.TempDir()
+	// A clone without LFS stands in for a download that failed
+	_, err = New(github.NewMockClient(), g, &Options{Target: target}).SyncRepoWithData(context.Background(), localRepo("owner", "lfs", up))
+	require.NoError(t, err)
+	clone := filepath.Join(target, "owner", "lfs")
+	oid := strings.Fields(runGit(t, "-C", clone, "lfs", "ls-files", "--all", "--long"))[0]
+	object := filepath.Join(clone, ".git", "lfs", "objects", oid[0:2], oid[2:4], oid)
+	require.NoFileExists(t, object)
+
+	syncer := New(github.NewMockClient(), g, &Options{Target: target, LFSAll: true})
+	result := NewResult()
+	syncer.afterSync(context.Background(), localRepo("owner", "lfs", up), clone, false, result)
 	assert.Empty(t, result.Warnings)
+	assert.FileExists(t, object)
+
+	// Once it succeeded, an unchanged repo is left alone
+	require.NoError(t, os.Remove(object))
+	syncer.afterSync(context.Background(), localRepo("owner", "lfs", up), clone, false, result)
+	assert.NoFileExists(t, object)
 }
