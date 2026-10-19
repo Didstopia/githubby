@@ -324,6 +324,24 @@ func TestExportRepo_IssuesAndPullsTurnedOff(t *testing.T) {
 	assert.Empty(t, pulls)
 }
 
+// Private repos on a free plan have no rulesets; GitHub says so with a 403
+func TestExportRepo_RulesetsNotInPlanAreEmpty(t *testing.T) {
+	e, target, _ := newTestExporter(t)
+	registerRepo()
+	httpmock.RegisterResponder("GET", api+"/rulesets", httpmock.NewJsonResponderOrPanic(403,
+		map[string]any{"message": "Upgrade to GitHub Pro or make this repository public to enable this feature."}))
+
+	rep := NewReport()
+	e.ExportRepo(context.Background(), testRepo(false), rep)
+	require.Empty(t, rep.Failed)
+	for _, w := range rep.Warnings {
+		assert.NotContains(t, w, RulesetsFile)
+	}
+	var rulesets []any
+	readJSON(t, filepath.Join(RepoDir(target, "owner", "repo"), RulesetsFile), &rulesets)
+	assert.Empty(t, rulesets)
+}
+
 func TestExportRepo_RetriesBadGateway(t *testing.T) {
 	e, _, waits := newTestExporter(t)
 	registerRepo()

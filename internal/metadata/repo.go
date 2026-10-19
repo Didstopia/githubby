@@ -363,12 +363,17 @@ func (e *Exporter) branchProtection(ctx context.Context, owner, name string) (ma
 	return out, nil
 }
 
-// rulesets lists rulesets, then fetches each one, since the list leaves out the rules
+// rulesets lists rulesets, then fetches each one, since the list leaves out the rules.
+// A plan without rulesets ("Upgrade to GitHub Pro/Team") has none, so that gives an empty list.
 func (e *Exporter) rulesets(ctx context.Context,
 	list func(o gh.ListOptions) ([]*gh.RepositoryRuleset, *gh.Response, error),
 	get func(id int64) (*gh.RepositoryRuleset, *gh.Response, error),
 ) ([]*gh.RepositoryRuleset, error) {
 	summaries, err := listAll(ctx, e, list)
+	var respErr *gh.ErrorResponse
+	if statusOf(err) == http.StatusForbidden && errors.As(err, &respErr) && strings.HasPrefix(respErr.Message, "Upgrade to GitHub") {
+		return []*gh.RepositoryRuleset{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
