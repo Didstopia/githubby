@@ -106,3 +106,14 @@ jobs:
           test "$rc" -ne 124
           # A checkout owned by another uid is still a usable repo
           docker run --rm --user 99:100 -v "$PWD:/src:ro" --entrypoint git githubby:ci -C /src status --short
+
+      - name: Smoke test — orphaned processes are reaped
+        run: |
+          # The probe leaves an orphan behind, like git's background gc; something must reap it
+          printf '#!/bin/sh\n(sleep 0.2 &)\nexec sleep 30\n' > "$RUNNER_TEMP/orphan"
+          chmod +x "$RUNNER_TEMP/orphan"
+          docker run -d --name reap -v "$RUNNER_TEMP/orphan:/githubby:ro" githubby:ci
+          sleep 3
+          zombies=$(docker exec reap ps -o stat | grep -c '^Z' || true)
+          docker rm -f reap
+          test "$zombies" -eq 0
