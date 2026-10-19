@@ -342,6 +342,53 @@ func TestExportRepo_RulesetsNotInPlanAreEmpty(t *testing.T) {
 	assert.Empty(t, rulesets)
 }
 
+// GitHub keeps timing out on some lists at 100 per page while 50 per page works
+func TestExportRepo_SmallerPagesAfterBadGateways(t *testing.T) {
+	e, target, _ := newTestExporter(t)
+	registerRepo()
+	var pages []string
+	httpmock.RegisterResponder("GET", api+"/pulls/comments", func(req *http.Request) (*http.Response, error) {
+		q := req.URL.Query()
+		pages = append(pages, q.Get("per_page")+"/"+q.Get("page"))
+		if q.Get("per_page") == "100" {
+			return httpmock.NewStringResponse(502, `{"message":"Server Error"}`), nil
+		}
+		if q.Get("page") == "2" {
+			return httpmock.NewJsonResponse(200, []map[string]any{{"id": 21, "pull_request_url": api + "/pulls/3"}})
+		}
+		resp, _ := httpmock.NewJsonResponse(200, []map[string]any{{"id": 20, "pull_request_url": api + "/pulls/3"}})
+		resp.Header.Set("Link", `<`+api+`/pulls/comments?per_page=50&page=2>; rel="next"`)
+		return resp, nil
+	})
+
+	rep := NewReport()
+	e.ExportRepo(context.Background(), testRepo(false), rep)
+	require.Empty(t, rep.Failed)
+	assert.Equal(t, "50/1", pages[len(pages)-2])
+	assert.Equal(t, "50/2", pages[len(pages)-1])
+
+	var pulls []PullExport
+	readJSON(t, filepath.Join(RepoDir(target, "owner", "repo"), PullsFile), &pulls)
+	require.Len(t, pulls, 1)
+	assert.Len(t, pulls[0].ReviewComments, 2)
+}
+
+func TestListAllAfter_PageSizeFallback(t *testing.T) {
+	e := New(gh.NewClient(nil), nil, t.TempDir())
+	e.sleep = func(ctx context.Context, d time.Duration) error { return nil }
+	var seen []gh.ListOptions
+	_, err := listAll(context.Background(), e, func(o gh.ListOptions) ([]int, *gh.Response, error) {
+		seen = append(seen, o)
+		return nil, nil, &gh.ErrorResponse{Response: &http.Response{StatusCode: http.StatusGatewayTimeout}}
+	})
+	require.Error(t, err)
+	// Each size is tried with all its retries, halving down to the floor
+	last := seen[len(seen)-1]
+	assert.Equal(t, minPerPage, last.PerPage)
+	assert.Equal(t, 1, last.Page)
+	assert.Len(t, seen, 3*(maxRateLimitWaits+1))
+}
+
 func TestExportRepo_RetriesBadGateway(t *testing.T) {
 	e, _, waits := newTestExporter(t)
 	registerRepo()

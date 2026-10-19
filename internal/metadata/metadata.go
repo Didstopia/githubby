@@ -20,6 +20,9 @@ import (
 // maxRateLimitWaits is how often one call may wait out a rate limit before giving up
 const maxRateLimitWaits = 5
 
+// minPerPage is the smallest page size a list falls back to when GitHub keeps timing out
+const minPerPage = 25
+
 // serverErrorWait is the pause before retrying a call that got a 502, 503 or 504
 const serverErrorWait = 10 * time.Second
 
@@ -197,12 +200,20 @@ func rateLimitWait(err error) (time.Duration, bool) {
 	}
 
 	// GitHub sometimes times out on big lists; a retry usually gets through
-	switch statusOf(err) {
-	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+	if isServerError(err) {
 		return serverErrorWait, true
 	}
 
 	return 0, false
+}
+
+// isServerError reports a 502, 503 or 504 from GitHub
+func isServerError(err error) bool {
+	switch statusOf(err) {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
 }
 
 // untilReset returns the wait until a rate limit resets, at least a second
@@ -246,6 +257,12 @@ func listAllAfter[T any](ctx context.Context, e *Exporter, list func(opts gh.Lis
 			items, resp, err = list(opts, after)
 			return err
 		})
+		// GitHub times out on some big lists at 100 per page; smaller pages of the same items get through
+		if isServerError(err) && opts.PerPage > minPerPage {
+			opts.Page = (opts.Page-1)*2 + 1
+			opts.PerPage /= 2
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
